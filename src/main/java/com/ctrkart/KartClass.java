@@ -31,9 +31,39 @@ public enum KartClass {
         this.turn = turn;
     }
 
+    private static final java.lang.reflect.Method TAGS_METHOD = findTagsMethod();
+
+    /** En 26.x el metodo de etiquetas cambio de nombre: probamos los nombres conocidos. */
+    private static java.lang.reflect.Method findTagsMethod() {
+        for (String name : new String[] {"entityTags", "getTags"}) {
+            try {
+                java.lang.reflect.Method m = Entity.class.getMethod(name);
+                if (Set.class.isAssignableFrom(m.getReturnType())) {
+                    return m;
+                }
+            } catch (NoSuchMethodException ignored) {
+                // probar el siguiente nombre
+            }
+        }
+        System.err.println("[ctrkart] No se encontro el metodo de etiquetas de Entity");
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Set<String> tagsOf(Entity e) {
+        if (TAGS_METHOD == null) {
+            return Set.of();
+        }
+        try {
+            return (Set<String>) TAGS_METHOD.invoke(e);
+        } catch (ReflectiveOperationException ex) {
+            return Set.of();
+        }
+    }
+
     /** -1 si la entidad no es kart; si no, el ordinal de su clase. Solo fiable en el servidor. */
     public static int idOf(Entity e) {
-        Set<String> tags = e.getTags(); // <- si cambia el nombre en 26.x, es el unico sitio a tocar
+        Set<String> tags = tagsOf(e);
         if (!tags.contains(BASE_TAG)) {
             return -1;
         }

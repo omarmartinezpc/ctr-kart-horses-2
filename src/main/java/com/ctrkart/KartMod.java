@@ -45,7 +45,7 @@ public class KartMod implements ModInitializer {
 
     @Override
     public void onInitialize() {
-        PayloadTypeRegistry.playS2C().register(KartSyncPayload.TYPE, KartSyncPayload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(KartSyncPayload.TYPE, KartSyncPayload.CODEC);
 
         UseEntityCallback.EVENT.register(KartMod::onUseEntity);
 
@@ -59,7 +59,7 @@ public class KartMod implements ModInitializer {
             }
         });
 
-        ServerTickEvents.END_WORLD_TICK.register(KartMod::tickLevel);
+        ServerTickEvents.END_LEVEL_TICK.register(KartMod::tickLevel);
     }
 
     /** Cada 10 ticks: detecta /tag add|remove kart y descuenta el Super Motor. */

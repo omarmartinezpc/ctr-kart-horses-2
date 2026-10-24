@@ -44,6 +44,9 @@ public final class KartPhysics {
     static final double[] FIRE_MULT = {1.00, 1.18, 1.30, 1.42}; // sin fuego / rojo / amarillo / azul
     static final double SACRED_MULT = 1.58;
 
+    /** Lo fija el cliente (KartModClient) para escribir en la barra de accion. */
+    public static volatile java.util.function.Consumer<Component> HUD = c -> {};
+
     private KartPhysics() {}
 
     public static void tick(AbstractHorse horse, Player rider, KartState s) {
@@ -167,7 +170,8 @@ public final class KartPhysics {
         Vec3 dm = horse.getDeltaMovement();
         horse.setDeltaMovement(-Math.sin(yawRad) * s.speed, dm.y, Math.cos(yawRad) * s.speed);
         float bodyYaw = s.moveYaw + s.bodyOffset;
-        horse.setRot(bodyYaw, 0f);
+        horse.setYRot(bodyYaw);
+        horse.setXRot(0f);
         horse.yRotO = bodyYaw;
         horse.yBodyRot = bodyYaw;
         horse.yHeadRot = bodyYaw;
@@ -281,7 +285,7 @@ public final class KartPhysics {
             sb.append("§7] §6").append("▮".repeat(s.pending));
         }
         if (sb.length() > 0) {
-            rider.displayClientMessage(Component.literal(sb.toString()), true);
+            HUD.accept(Component.literal(sb.toString()));
         }
     }
 
