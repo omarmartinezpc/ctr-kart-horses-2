@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "ctrkart",
+  "version": "${version}",
+  "name": "CTR Kart Horses",
+  "description": "Los caballos con la etiqueta 'kart' se conducen como un kart de Crash Team Racing Nitro-Fueled: derrape, turbos encadenados, reservas, Sacred Fire y Super Motor al alimentarlos.",
+  "authors": ["Tu nombre"],
+  "license": "MIT",
+  "environment": "*",
+  "entrypoints": {
+    "main": ["com.ctrkart.KartMod"],
+    "client": ["com.ctrkart.KartModClient"]
+  },
+  "mixins": ["ctrkart.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.19.3",
+    "minecraft": "~26.3",
+    "java": ">=25",
+    "fabric-api": "*"
+  }
+}

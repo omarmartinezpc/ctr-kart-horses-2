@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "com.ctrkart.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "AbstractHorseMixin",
+    "LivingEntityAccessor"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
