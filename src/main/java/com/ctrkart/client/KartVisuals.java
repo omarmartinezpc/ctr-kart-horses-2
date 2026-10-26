@@ -30,6 +30,7 @@ public final class KartVisuals {
     private static ClientLevel lastLevel;
     private static ItemStack stack;
     private static boolean failed;
+    private static EntityType<?> itemDisplayType;
 
     private KartVisuals() {}
 
@@ -96,7 +97,12 @@ public final class KartVisuals {
 
     private static Display.ItemDisplay create(ClientLevel level) {
         try {
-            Display.ItemDisplay d = new Display.ItemDisplay(EntityType.ITEM_DISPLAY, level);
+            EntityType<?> type = itemDisplayType();
+            if (type == null) {
+                fail("no encontre el tipo de entidad item_display");
+                return null;
+            }
+            Display.ItemDisplay d = new Display.ItemDisplay(type, level);
             if (!setItem(d)) {
                 fail("no encontre el metodo para asignar el objeto al item display");
                 return null;
@@ -110,6 +116,29 @@ public final class KartVisuals {
             fail("error creando el modelo: " + ex);
             return null;
         }
+    }
+
+    /** El nombre de la constante cambio en 26.x, asi que se busca por nombre entre los campos de EntityType. */
+    private static EntityType<?> itemDisplayType() {
+        if (itemDisplayType == null) {
+            for (java.lang.reflect.Field f : EntityType.class.getFields()) {
+                if (!java.lang.reflect.Modifier.isStatic(f.getModifiers())
+                        || !EntityType.class.isAssignableFrom(f.getType())) {
+                    continue;
+                }
+                try {
+                    Object v = f.get(null);
+                    boolean byName = f.getName().toLowerCase().contains("item_display");
+                    if (v != null && (byName || String.valueOf(v).endsWith("item_display"))) {
+                        itemDisplayType = (EntityType<?>) v;
+                        break;
+                    }
+                } catch (IllegalAccessException ignored) {
+                    // seguir buscando
+                }
+            }
+        }
+        return itemDisplayType;
     }
 
     private static ItemStack stack() {
