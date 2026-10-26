@@ -55,6 +55,9 @@ public final class KartVisuals {
             Map.Entry<Integer, Display.ItemDisplay> e = it.next();
             Entity horse = level.getEntity(e.getKey());
             if (horse == null || horse.isRemoved() || KartTracker.get(e.getKey()) == null) {
+                if (horse != null && !horse.isRemoved()) {
+                    horse.setInvisible(false);
+                }
                 e.getValue().discard();
                 it.remove();
             }
@@ -68,6 +71,9 @@ public final class KartVisuals {
                 continue;
             }
             engineSound(level, horse, e.getKey());
+            if (KartTracker.modelReady) {
+                horse.setInvisible(true); // el caballo no se ve; solo el modelo de kart
+            }
 
             if (failed) {
                 continue;

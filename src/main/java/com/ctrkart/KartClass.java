@@ -11,11 +11,11 @@ import net.minecraft.world.entity.Entity;
  * Los valores son de balance propio (no son datos extraidos del juego original).
  */
 public enum KartClass {
-    BALANCED("kart", 0.42, 0.020, 4.8f),
-    SPEED("kart_speed", 0.46, 0.012, 4.0f),
-    ACCEL("kart_accel", 0.39, 0.034, 4.8f),
-    TURN("kart_turn", 0.38, 0.018, 6.4f),
-    BIG("kart_big", 0.44, 0.014, 3.6f);
+    BALANCED("kart", 0.56, 0.020, 4.8f),
+    SPEED("kart_speed", 0.62, 0.012, 4.0f),
+    ACCEL("kart_accel", 0.52, 0.034, 4.8f),
+    TURN("kart_turn", 0.51, 0.018, 6.4f),
+    BIG("kart_big", 0.59, 0.014, 3.6f);
 
     public static final String BASE_TAG = "kart";
     /** Etiqueta opcional: gira el modelo 180 grados si te aparece mirando hacia atras. */

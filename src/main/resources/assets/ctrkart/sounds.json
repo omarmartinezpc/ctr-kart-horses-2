@@ -3,5 +3,14 @@
     "sounds": [
       { "name": "ctrkart:kart_engine", "stream": false }
     ]
+  },
+  "sacred.fire.1": {
+    "sounds": [ { "name": "ctrkart:sacred_fire_1", "stream": false } ]
+  },
+  "sacred.fire.2": {
+    "sounds": [ { "name": "ctrkart:sacred_fire_2", "stream": false } ]
+  },
+  "sacred.fire.3": {
+    "sounds": [ { "name": "ctrkart:sacred_fire_3", "stream": false } ]
   }
 }
