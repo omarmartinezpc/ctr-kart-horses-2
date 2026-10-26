@@ -2,6 +2,7 @@ package com.ctrkart;
 
 import com.ctrkart.mixin.LivingEntityAccessor;
 import java.util.Locale;
+import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
@@ -21,7 +22,7 @@ import net.minecraft.world.phys.Vec3;
  * Controles:  W/S acelerar/frenar | A/D girar | ESPACIO = hop; mantenido + A/D = derrapar
  *             Durante el derrape, S (tap) en la ventana verde = turbo (hasta 3, se apilan)
  *
- * ENERGIA (0..100): se obtiene al caer de altura, al lograr Sacred Fire y al alimentar al caballo.
+ * ENERGIA (0..100): se obtiene al caer de altura y al alimentar al caballo (el Sacred Fire NO da energia).
  * Alarga la duracion de la velocidad de Sacred Fire (la de la caida alta incluida).
  *
  * Todos los numeros son de balance propio, ajustables aqui.
@@ -41,15 +42,15 @@ public final class KartPhysics {
     static final int MAX_TURBOS = 3;
     static final int TURBO_TICKS_PER_LEVEL = 24;
     static final int BOOST_CAP = 120;
-    static final double[] FIRE_MULT = {1.00, 1.18, 1.30, 1.42}; // sin fuego / rojo / amarillo / azul
+    static final double[] FIRE_MULT = {1.00, 1.20, 1.38, 1.55}; // sin fuego / rojo / amarillo / azul
     // Sacred Fire
-    static final int SACRED_CHAIN = 3;         // 3 turbos encadenados = Sacred Fire
-    static final int SACRED_BASE_TICKS = 50;   // duracion base (2,5 s); despues sigue gastando energia
-    static final double SACRED_MULT = 1.58;
+    static final int SACRED_CHAIN = 3;         // 3 turbos en un derrape (nivel 3) o 3 encadenados = Sacred Fire
+    static final int SACRED_BASE_TICKS = 60;   // duracion base (3 s); despues sigue gastando energia
+    static final double SACRED_MULT = 1.70;    // siempre mayor que la velocidad base y que cualquier otro turbo
+    static final double SUPER_MULT = 1.40;     // Super Motor
     // Energia
     static final float ENERGY_MAX = 100f;
     static final float ENERGY_DRAIN = 0.5f;    // por tick mientras alarga el Sacred Fire (100 = 10 s)
-    static final float SACRED_ENERGY = 25f;    // energia al asestar un Sacred Fire
     // Caida alta: de FALL_MIN a FALL_FULL bloques de caida, la energia va de FALL_ENERGY_MIN a FALL_ENERGY_MAX
     static final double FALL_MIN = 3.0;
     static final double FALL_FULL = 24.0;
@@ -159,34 +160,40 @@ public final class KartPhysics {
         float target = s.drifting ? s.driftDir * DRIFT_ANGLE : 0f;
         s.bodyOffset += (target - s.bodyOffset) * 0.35f;
 
-        // --- velocidad ---
+        // --- velocidad: manda siempre la velocidad MAS ALTA entre todas las fuentes activas ---
         boolean turbo = s.boostTicks > 0;
         double mult = 1.0;
-        if (s.sacred) {
-            mult = SACRED_MULT;
-        } else if (turbo) {
+        if (turbo) {
             mult = FIRE_MULT[Math.min(s.fireLevel, 3)];
         }
-        if (s.superTicks > 0) { // Super Motor: la velocidad maxima sube a velocidad de turbo
-            mult = Math.max(mult, FIRE_MULT[3]);
+        if (s.sacred) {
+            mult = Math.max(mult, SACRED_MULT);
+        }
+        if (s.superTicks > 0) {
+            mult = Math.max(mult, SUPER_MULT);
         }
         double cap = k.top * mult;
-        boolean powered = s.sacred || turbo || s.superTicks > 0;
+        boolean forced = s.sacred || turbo;          // el turbo / Sacred Fire fuerza la velocidad aunque no pises W
+        boolean powered = forced || s.superTicks > 0;
         double accel = k.accel * (powered ? 2.5 : 1.0);
 
         if (throttle > 0) {
-            s.speed += accel;
+            if (s.speed < cap) {
+                s.speed = Math.min(cap, s.speed + accel);
+            }
         } else if (s.drifting) {
             s.speed *= 0.99;
         } else if (throttle < 0) {
             s.speed -= BRAKE;
-        } else {
+        } else if (!forced) {
             s.speed *= COAST;
         }
-        if (s.sacred || turbo) { // el turbo / Sacred Fire fuerza la velocidad aunque no pises W
+        if (forced && s.speed < cap) {
             s.speed = Math.min(cap, Math.max(s.speed, 0) + 0.05);
         }
-        if (s.speed > cap) {
+        // Si ya vas mas rapido de lo que da la fuente actual (p. ej. justo despues de un Sacred Fire),
+        // esa velocidad mas alta se respeta mientras haya potenciadores; solo baja al acabarse todos.
+        if (!powered && s.speed > cap) {
             s.speed = Math.max(cap, s.speed - 0.012);
         }
         if (s.speed < -REVERSE_MAX) {
@@ -245,19 +252,17 @@ public final class KartPhysics {
         addEnergy(s, (float) (FALL_ENERGY_MIN + t * (FALL_ENERGY_MAX - FALL_ENERGY_MIN)));
         s.fireLevel = 3;
         s.chain = Math.max(s.chain, SACRED_CHAIN);
-        startSacred(horse, s, false); // la caida ya da su propia energia
+        startSacred(horse, s);
         sfx(horse, SoundEvents.FIREWORK_ROCKET_LAUNCH, 0.7f);
     }
 
-    /** Activa (o renueva) el Sacred Fire. La energia por "asestarlo" solo se da la primera vez. */
-    private static void startSacred(AbstractHorse horse, KartState s, boolean giveEnergy) {
+    /** Activa (o renueva) el Sacred Fire. No da energia: la energia solo viene de caidas y de alimentar. */
+    private static void startSacred(AbstractHorse horse, KartState s) {
         boolean fresh = !s.sacred;
         s.sacred = true;
+        s.fireLevel = 3;
         s.sacredTicks = Math.max(s.sacredTicks, SACRED_BASE_TICKS);
         if (fresh) {
-            if (giveEnergy) {
-                addEnergy(s, SACRED_ENERGY);
-            }
             sacredBurst(horse, s);
         }
     }
@@ -293,8 +298,8 @@ public final class KartPhysics {
         s.chain = active ? s.chain + 1 : 1;
         s.fireLevel = s.boostTicks > 0 ? Math.max(s.fireLevel, level) : level;
         s.boostTicks = Math.min(BOOST_CAP, s.boostTicks + ticks);
-        if (s.chain >= SACRED_CHAIN) {
-            startSacred(horse, s, true);
+        if (level >= 3 || s.chain >= SACRED_CHAIN) { // 3 turbos en un derrape, o 3 encadenados
+            startSacred(horse, s);
         }
         sfx(horse, SoundEvents.FIREWORK_ROCKET_LAUNCH, 1.0f);
     }
@@ -310,18 +315,27 @@ public final class KartPhysics {
                 horse.getZ() + fz * dir * back + fx * side);
     }
 
+    private static final DustParticleOptions FIRE_RED = new DustParticleOptions(0xFF2A2A, 1.3f);
+    private static final DustParticleOptions FIRE_YELLOW = new DustParticleOptions(0xFFD21E, 1.3f);
+    private static final DustParticleOptions FIRE_BLUE = new DustParticleOptions(0x2F6BFF, 1.5f);
+
     private static void sacredBurst(AbstractHorse horse, KartState s) {
         Level level = horse.level();
         RandomSource r = horse.getRandom();
-        sfx(horse, SoundEvents.FIREWORK_ROCKET_BLAST, 0.85f); // explosion pequena
-        sfx(horse, SoundEvents.FIREWORK_ROCKET_LAUNCH, 0.6f);
+        SoundEvent boom = toEvent(SoundEvents.GENERIC_EXPLODE); // explosion de TNT, a volumen bajo
+        if (boom != null) {
+            sfx(horse, boom, 0.35f, 1.15f);
+        }
         float yaw = s.moveYaw + s.bodyOffset;
         for (int side = -1; side <= 1; side += 2) {
             Vec3 e = local(horse, s, yaw, EXHAUST_BACK, side * EXHAUST_SIDE, EXHAUST_Y);
             level.addParticle(ParticleTypes.EXPLOSION, e.x, e.y, e.z, 0, 0, 0);
-            for (int i = 0; i < 8; i++) {
-                level.addParticle(ParticleTypes.SOUL_FIRE_FLAME, e.x, e.y, e.z,
-                        (r.nextDouble() - 0.5) * 0.3, 0.05 + r.nextDouble() * 0.1, (r.nextDouble() - 0.5) * 0.3);
+            for (int i = 0; i < 10; i++) {
+                double vx = (r.nextDouble() - 0.5) * 0.3;
+                double vy = 0.05 + r.nextDouble() * 0.1;
+                double vz = (r.nextDouble() - 0.5) * 0.3;
+                level.addParticle(FIRE_BLUE, e.x, e.y, e.z, vx, vy, vz);
+                level.addParticle(ParticleTypes.SOUL_FIRE_FLAME, e.x, e.y, e.z, vx, vy, vz);
             }
         }
     }
@@ -334,15 +348,20 @@ public final class KartPhysics {
         double ox = -Math.sin(rad) * dir; // hacia donde sale el fuego
         double oz = Math.cos(rad) * dir;
 
-        if (s.sacred || s.boostTicks > 0) { // llama por los dos escapes: roja -> amarilla -> azul (Sacred Fire)
-            ParticleOptions p = s.sacred ? ParticleTypes.SOUL_FIRE_FLAME
+        if (s.sacred || s.boostTicks > 0) {
+            // Colores bien distintos: rojo (nivel 1), amarillo (nivel 2), azul (Sacred Fire)
+            ParticleOptions color = s.sacred ? FIRE_BLUE : (s.fireLevel >= 2 ? FIRE_YELLOW : FIRE_RED);
+            ParticleOptions flame = s.sacred ? ParticleTypes.SOUL_FIRE_FLAME
                     : (s.fireLevel >= 2 ? ParticleTypes.FLAME : ParticleTypes.SMALL_FLAME);
             int n = s.sacred ? 3 : Math.max(1, s.fireLevel);
             for (int side = -1; side <= 1; side += 2) {
                 Vec3 e = local(horse, s, bodyYaw, EXHAUST_BACK, side * EXHAUST_SIDE, EXHAUST_Y);
                 for (int i = 0; i < n; i++) {
-                    level.addParticle(p, e.x + (r.nextDouble() - 0.5) * 0.06, e.y + (r.nextDouble() - 0.5) * 0.06,
-                            e.z + (r.nextDouble() - 0.5) * 0.06, ox * 0.18, 0.01, oz * 0.18);
+                    double px = e.x + (r.nextDouble() - 0.5) * 0.06;
+                    double py = e.y + (r.nextDouble() - 0.5) * 0.06;
+                    double pz = e.z + (r.nextDouble() - 0.5) * 0.06;
+                    level.addParticle(color, px, py, pz, ox * 0.18, 0.01, oz * 0.18);
+                    level.addParticle(flame, px, py, pz, ox * 0.18, 0.01, oz * 0.18);
                 }
             }
         }
@@ -400,6 +419,22 @@ public final class KartPhysics {
     }
 
     private static void sfx(AbstractHorse h, SoundEvent e, float pitch) {
-        h.level().playLocalSound(h.getX(), h.getY(), h.getZ(), e, SoundSource.NEUTRAL, 0.8f, pitch, false);
+        sfx(h, e, 0.8f, pitch);
+    }
+
+    private static void sfx(AbstractHorse h, SoundEvent e, float volume, float pitch) {
+        h.level().playLocalSound(h.getX(), h.getY(), h.getZ(), e, SoundSource.NEUTRAL, volume, pitch, false);
+    }
+
+    /** Algunos sonidos son SoundEvent y otros Holder<SoundEvent> segun la version: aceptamos ambos. */
+    private static SoundEvent toEvent(Object o) {
+        if (o instanceof SoundEvent e) {
+            return e;
+        }
+        try {
+            return (SoundEvent) o.getClass().getMethod("value").invoke(o);
+        } catch (ReflectiveOperationException | ClassCastException ex) {
+            return null;
+        }
     }
 }

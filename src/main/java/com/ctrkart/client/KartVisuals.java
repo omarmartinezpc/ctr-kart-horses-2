@@ -12,6 +12,7 @@ import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.resources.Identifier;
@@ -93,8 +94,8 @@ public final class KartVisuals {
         if (!horse.isVehicle() || (level.getGameTime() + id) % 3 != 0) {
             return; // solo suena con alguien montado
         }
-        float pitch = (float) Math.min(1.8, 0.7 + speed * 1.4);
-        float volume = speed < 0.02 ? 0.25f : 0.5f;
+        float pitch = (float) Math.min(2.0, 0.6 + speed * 2.0); // 0.6 parado -> 2.0 a gran velocidad
+        float volume = speed < 0.02 ? 0.12f : 0.28f;
         level.playLocalSound(horse.getX(), horse.getY(), horse.getZ(), KartSounds.ENGINE,
                 SoundSource.NEUTRAL, volume, pitch, false);
     }
@@ -109,11 +110,11 @@ public final class KartVisuals {
             Display.ItemDisplay d = new Display.ItemDisplay(type, level);
             d.setId(FAKE_ID_BASE - horseId);
             if (!setItem(d)) {
-                fail("no encontre el metodo para asignar el objeto al item display");
+                fail("no encontre el metodo para asignar el objeto al item display; candidatos: " + names(Display.ItemDisplay.class.getDeclaredMethods(), ItemStack.class));
                 return null;
             }
             if (!addToLevel(level, d)) {
-                fail("no encontre el metodo para anadir la entidad al mundo del cliente");
+                fail("no encontre el metodo para anadir la entidad al mundo del cliente; candidatos: " + names(level.getClass().getMethods(), Entity.class));
                 return null;
             }
             KartTracker.modelReady = true; // a partir de ahora se oculta el caballo
@@ -125,23 +126,14 @@ public final class KartVisuals {
         }
     }
 
-    /** El nombre de la constante cambio en 26.x, asi que se busca por nombre entre los campos de EntityType. */
+    /** El tipo se busca en el registro del juego por su nombre (las constantes de EntityType cambiaron en 26.x). */
     private static EntityType<?> itemDisplayType() {
         if (itemDisplayType == null) {
-            for (java.lang.reflect.Field f : EntityType.class.getFields()) {
-                if (!java.lang.reflect.Modifier.isStatic(f.getModifiers())
-                        || !EntityType.class.isAssignableFrom(f.getType())) {
-                    continue;
-                }
-                try {
-                    Object v = f.get(null);
-                    boolean byName = f.getName().toLowerCase().contains("item_display");
-                    if (v != null && (byName || String.valueOf(v).endsWith("item_display"))) {
-                        itemDisplayType = (EntityType<?>) v;
-                        break;
-                    }
-                } catch (IllegalAccessException ignored) {
-                    // seguir buscando
+            for (EntityType<?> t : BuiltInRegistries.ENTITY_TYPE) {
+                Identifier id = BuiltInRegistries.ENTITY_TYPE.getKey(t);
+                if (id != null && id.getPath().equals("item_display")) {
+                    itemDisplayType = t;
+                    break;
                 }
             }
         }
@@ -187,6 +179,20 @@ public final class KartVisuals {
             }
         }
         return false;
+    }
+
+    /** Nombres de metodos que reciben un parametro de cierto tipo (solo para mensajes de diagnostico). */
+    private static String names(Method[] methods, Class<?> param) {
+        StringBuilder sb = new StringBuilder();
+        for (Method m : methods) {
+            for (Class<?> p : m.getParameterTypes()) {
+                if (param.isAssignableFrom(p)) {
+                    sb.append(m.getName()).append(' ');
+                    break;
+                }
+            }
+        }
+        return sb.toString().trim();
     }
 
     private static void fail(String why) {
