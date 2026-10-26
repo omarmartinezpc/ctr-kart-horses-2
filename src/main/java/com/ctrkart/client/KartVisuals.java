@@ -1,6 +1,7 @@
 package com.ctrkart.client;
 
 import com.ctrkart.KartMod;
+import com.ctrkart.KartPhysics;
 import com.ctrkart.KartSounds;
 import com.ctrkart.KartState;
 import com.ctrkart.KartTracker;
@@ -11,6 +12,7 @@ import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.network.chat.Component;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.Display;
@@ -30,6 +32,8 @@ public final class KartVisuals {
     private static ClientLevel lastLevel;
     private static ItemStack stack;
     private static boolean failed;
+    /** Ids negativos para no chocar con los ids de entidades reales del servidor. */
+    private static final int FAKE_ID_BASE = -1_000_000;
     private static EntityType<?> itemDisplayType;
 
     private KartVisuals() {}
@@ -69,7 +73,7 @@ public final class KartVisuals {
             }
             Display.ItemDisplay d = DISPLAYS.get(e.getKey());
             if (d == null) {
-                d = create(level);
+                d = create(level, e.getKey());
                 if (d == null) {
                     continue;
                 }
@@ -95,7 +99,7 @@ public final class KartVisuals {
                 SoundSource.NEUTRAL, volume, pitch, false);
     }
 
-    private static Display.ItemDisplay create(ClientLevel level) {
+    private static Display.ItemDisplay create(ClientLevel level, int horseId) {
         try {
             EntityType<?> type = itemDisplayType();
             if (type == null) {
@@ -103,6 +107,7 @@ public final class KartVisuals {
                 return null;
             }
             Display.ItemDisplay d = new Display.ItemDisplay(type, level);
+            d.setId(FAKE_ID_BASE - horseId);
             if (!setItem(d)) {
                 fail("no encontre el metodo para asignar el objeto al item display");
                 return null;
@@ -111,6 +116,8 @@ public final class KartVisuals {
                 fail("no encontre el metodo para anadir la entidad al mundo del cliente");
                 return null;
             }
+            KartTracker.modelReady = true; // a partir de ahora se oculta el caballo
+            System.out.println("[ctrkart] Modelo de kart creado para el caballo " + horseId);
             return d;
         } catch (Exception ex) {
             fail("error creando el modelo: " + ex);
@@ -184,6 +191,8 @@ public final class KartVisuals {
 
     private static void fail(String why) {
         failed = true;
+        KartTracker.modelReady = false; // el caballo vuelve a verse
         System.err.println("[ctrkart] Modelo de kart desactivado: " + why);
+        KartPhysics.HUD.accept(Component.literal("§c[ctrkart] Modelo de kart desactivado: " + why));
     }
 }

@@ -20,6 +20,8 @@ public class KartModClient implements ClientModInitializer {
         ClientTickEvents.END_CLIENT_TICK.register(client -> KartVisuals.tick(client));
         ClientPlayNetworking.registerGlobalReceiver(KartSyncPayload.TYPE,
                 (payload, context) -> KartTracker.apply(payload)); // Fabric ya lo ejecuta en el hilo principal
+        ClientPlayNetworking.registerGlobalReceiver(KartEnergyPayload.TYPE,
+                (payload, context) -> KartTracker.addEnergy(payload.entityId(), payload.amount()));
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> KartTracker.clear());
     }
 

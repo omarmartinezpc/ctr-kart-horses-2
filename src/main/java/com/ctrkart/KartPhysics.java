@@ -21,6 +21,9 @@ import net.minecraft.world.phys.Vec3;
  * Controles:  W/S acelerar/frenar | A/D girar | ESPACIO = hop; mantenido + A/D = derrapar
  *             Durante el derrape, S (tap) en la ventana verde = turbo (hasta 3, se apilan)
  *
+ * ENERGIA (0..100): se obtiene al caer de altura, al lograr Sacred Fire y al alimentar al caballo.
+ * Alarga la duracion de la velocidad de Sacred Fire (la de la caida alta incluida).
+ *
  * Todos los numeros son de balance propio, ajustables aqui.
  */
 public final class KartPhysics {
@@ -31,18 +34,27 @@ public final class KartPhysics {
     static final double HOP_VELOCITY = 0.24;
     static final double DRIFT_MIN_SPEED = 0.22;
     static final float DRIFT_ANGLE = 26f;
-    // Turbos
-    static final int CHARGE_PERIOD = 22;      // el medidor da la vuelta cada 22 ticks (antes 34)
-    static final int WINDOW_OPEN = 9;          // ventana de turbo perfecto: ticks 9..17 (antes 18..30)
+    // Turbos de derrape
+    static final int CHARGE_PERIOD = 22;       // el medidor da la vuelta cada 22 ticks
+    static final int WINDOW_OPEN = 9;          // ventana de turbo perfecto: ticks 9..17
     static final int WINDOW_CLOSE = 17;
     static final int MAX_TURBOS = 3;
     static final int TURBO_TICKS_PER_LEVEL = 24;
-    static final int HANG_MIN_AIR = 12;        // "hang time": aire minimo para turbo al aterrizar
-    // Reservas y Sacred Fire
-    static final float RESERVE_CAP = 160f;     // 8 s
-    static final int SACRED_CHAIN = 3;         // 3 turbos encadenados = Sacred Fire
+    static final int BOOST_CAP = 120;
     static final double[] FIRE_MULT = {1.00, 1.18, 1.30, 1.42}; // sin fuego / rojo / amarillo / azul
+    // Sacred Fire
+    static final int SACRED_CHAIN = 3;         // 3 turbos encadenados = Sacred Fire
+    static final int SACRED_BASE_TICKS = 50;   // duracion base (2,5 s); despues sigue gastando energia
     static final double SACRED_MULT = 1.58;
+    // Energia
+    static final float ENERGY_MAX = 100f;
+    static final float ENERGY_DRAIN = 0.5f;    // por tick mientras alarga el Sacred Fire (100 = 10 s)
+    static final float SACRED_ENERGY = 25f;    // energia al asestar un Sacred Fire
+    // Caida alta: de FALL_MIN a FALL_FULL bloques de caida, la energia va de FALL_ENERGY_MIN a FALL_ENERGY_MAX
+    static final double FALL_MIN = 3.0;
+    static final double FALL_FULL = 24.0;
+    static final float FALL_ENERGY_MIN = 10f;
+    static final float FALL_ENERGY_MAX = 100f;
     // Escape del modelo de kart (bloques, relativo al centro del kart)
     static final double EXHAUST_BACK = 0.9;
     static final double EXHAUST_SIDE = 0.20;
@@ -89,15 +101,17 @@ public final class KartPhysics {
             s.superTicks--;
         }
 
-        // --- aire / aterrizaje (hang time) ---
+        // --- aire / aterrizaje (caida alta) ---
         boolean onGround = horse.onGround();
         if (!onGround) {
+            s.airMaxY = s.airTicks == 0 ? horse.getY() : Math.max(s.airMaxY, horse.getY());
             s.airTicks++;
         } else {
-            if (s.airTicks >= HANG_MIN_AIR) {
-                payout(horse, s, 1, Math.min(s.airTicks * 2, 60));
-            }
             if (s.airTicks > 0) {
+                double drop = s.airMaxY - horse.getY();
+                if (drop >= FALL_MIN) {
+                    highFall(horse, s, drop);
+                }
                 s.hopAir = false;
             }
             s.airTicks = 0;
@@ -146,16 +160,18 @@ public final class KartPhysics {
         s.bodyOffset += (target - s.bodyOffset) * 0.35f;
 
         // --- velocidad ---
-        boolean boosting = s.reserve > 0;
+        boolean turbo = s.boostTicks > 0;
         double mult = 1.0;
-        if (boosting) {
-            mult = s.sacred ? SACRED_MULT : FIRE_MULT[Math.min(s.fireLevel, 3)];
+        if (s.sacred) {
+            mult = SACRED_MULT;
+        } else if (turbo) {
+            mult = FIRE_MULT[Math.min(s.fireLevel, 3)];
         }
         if (s.superTicks > 0) { // Super Motor: la velocidad maxima sube a velocidad de turbo
             mult = Math.max(mult, FIRE_MULT[3]);
         }
         double cap = k.top * mult;
-        boolean powered = boosting || s.superTicks > 0;
+        boolean powered = s.sacred || turbo || s.superTicks > 0;
         double accel = k.accel * (powered ? 2.5 : 1.0);
 
         if (throttle > 0) {
@@ -167,7 +183,7 @@ public final class KartPhysics {
         } else {
             s.speed *= COAST;
         }
-        if (boosting) { // el turbo fuerza la velocidad aunque no pises W
+        if (s.sacred || turbo) { // el turbo / Sacred Fire fuerza la velocidad aunque no pises W
             s.speed = Math.min(cap, Math.max(s.speed, 0) + 0.05);
         }
         if (s.speed > cap) {
@@ -195,20 +211,54 @@ public final class KartPhysics {
         horse.yBodyRot = bodyYaw;
         horse.yHeadRot = bodyYaw;
 
-        // --- drenaje de reservas (Sacred Fire gasta la mitad) ---
-        if (s.reserve > 0) {
-            s.reserve -= s.sacred ? 0.5f : 1f;
-            if (s.reserve <= 0) {
-                s.reserve = 0;
-                s.fireLevel = 0;
-                s.chain = 0;
+        // --- temporizadores: turbo de derrape, Sacred Fire y ENERGIA ---
+        if (s.boostTicks > 0) {
+            s.boostTicks--;
+        }
+        if (s.sacred) {
+            if (s.sacredTicks > 0) {
+                s.sacredTicks--;
+            } else if (s.energy > 0) { // la energia alarga el Sacred Fire
+                s.energy = Math.max(0f, s.energy - ENERGY_DRAIN);
+            } else {
                 s.sacred = false;
             }
+        }
+        if (s.boostTicks <= 0 && !s.sacred) {
+            s.fireLevel = 0;
+            s.chain = 0;
         }
 
         effects(horse, s, bodyYaw);
         if (horse.tickCount % 2 == 0) {
-            hud(rider, s);
+            hud(s);
+        }
+    }
+
+    private static void addEnergy(KartState s, float amount) {
+        s.energy = Math.min(ENERGY_MAX, s.energy + amount);
+    }
+
+    /** Caida alta: da energia segun la altura y activa la velocidad de Sacred Fire. */
+    private static void highFall(AbstractHorse horse, KartState s, double drop) {
+        double t = Mth.clamp((drop - FALL_MIN) / (FALL_FULL - FALL_MIN), 0.0, 1.0);
+        addEnergy(s, (float) (FALL_ENERGY_MIN + t * (FALL_ENERGY_MAX - FALL_ENERGY_MIN)));
+        s.fireLevel = 3;
+        s.chain = Math.max(s.chain, SACRED_CHAIN);
+        startSacred(horse, s, false); // la caida ya da su propia energia
+        sfx(horse, SoundEvents.FIREWORK_ROCKET_LAUNCH, 0.7f);
+    }
+
+    /** Activa (o renueva) el Sacred Fire. La energia por "asestarlo" solo se da la primera vez. */
+    private static void startSacred(AbstractHorse horse, KartState s, boolean giveEnergy) {
+        boolean fresh = !s.sacred;
+        s.sacred = true;
+        s.sacredTicks = Math.max(s.sacredTicks, SACRED_BASE_TICKS);
+        if (fresh) {
+            if (giveEnergy) {
+                addEnergy(s, SACRED_ENERGY);
+            }
+            sacredBurst(horse, s);
         }
     }
 
@@ -237,15 +287,14 @@ public final class KartPhysics {
         s.charge = 0;
     }
 
-    /** Un turbo cobra: suma a las RESERVAS, sube el fuego y encadena hacia el Sacred Fire. */
+    /** Un turbo cobra: sube el fuego y encadena hacia el Sacred Fire. */
     private static void payout(AbstractHorse horse, KartState s, int level, int ticks) {
-        boolean chaining = s.reserve > 0;
-        s.chain = chaining ? s.chain + 1 : 1;
-        s.fireLevel = chaining ? Math.max(s.fireLevel, level) : level;
-        s.reserve = Math.min(RESERVE_CAP, s.reserve + ticks);
-        if (s.chain >= SACRED_CHAIN && !s.sacred) {
-            s.sacred = true;
-            sacredBurst(horse, s);
+        boolean active = s.boostTicks > 0 || s.sacred;
+        s.chain = active ? s.chain + 1 : 1;
+        s.fireLevel = s.boostTicks > 0 ? Math.max(s.fireLevel, level) : level;
+        s.boostTicks = Math.min(BOOST_CAP, s.boostTicks + ticks);
+        if (s.chain >= SACRED_CHAIN) {
+            startSacred(horse, s, true);
         }
         sfx(horse, SoundEvents.FIREWORK_ROCKET_LAUNCH, 1.0f);
     }
@@ -285,7 +334,7 @@ public final class KartPhysics {
         double ox = -Math.sin(rad) * dir; // hacia donde sale el fuego
         double oz = Math.cos(rad) * dir;
 
-        if (s.reserve > 0) { // llama por los dos escapes: roja -> amarilla -> azul (Sacred Fire)
+        if (s.sacred || s.boostTicks > 0) { // llama por los dos escapes: roja -> amarilla -> azul (Sacred Fire)
             ParticleOptions p = s.sacred ? ParticleTypes.SOUL_FIRE_FLAME
                     : (s.fireLevel >= 2 ? ParticleTypes.FLAME : ParticleTypes.SMALL_FLAME);
             int n = s.sacred ? 3 : Math.max(1, s.fireLevel);
@@ -312,21 +361,34 @@ public final class KartPhysics {
         }
     }
 
-    private static void hud(Player rider, KartState s) {
+    /** Barra de energia (barra de accion): [████░░░░] + estado del turbo y el medidor de derrape. */
+    private static void hud(KartState s) {
         StringBuilder sb = new StringBuilder();
         if (s.sacred) {
             sb.append("§9§lSACRED FIRE§r ");
-        } else if (s.reserve > 0) {
+        } else if (s.boostTicks > 0) {
             sb.append(s.fireLevel >= 3 ? "§b" : s.fireLevel == 2 ? "§e" : "§c").append("Turbo§r ");
         }
-        if (s.reserve > 0) {
-            sb.append(String.format(Locale.ROOT, "Reservas %.1fs ", s.reserve / 20f));
+
+        int total = 16;
+        int filled = Math.round(s.energy / ENERGY_MAX * total);
+        sb.append("§7Energia ").append(s.sacred ? "§9" : "§b");
+        for (int i = 0; i < total; i++) {
+            if (i == filled) {
+                sb.append("§8");
+            }
+            sb.append(i < filled ? "█" : "░");
+        }
+        sb.append(String.format(Locale.ROOT, " §f%d%%", Math.round(s.energy)));
+        if (s.sacred) {
+            float secs = (s.sacredTicks + s.energy / ENERGY_DRAIN) / 20f;
+            sb.append(String.format(Locale.ROOT, " §9(%.1fs)", secs));
         }
         if (s.superTicks > 0) {
-            sb.append(String.format(Locale.ROOT, "§dSuper Motor %.1fs§r ", s.superTicks / 20f));
+            sb.append(String.format(Locale.ROOT, " §dSuper Motor %.1fs", s.superTicks / 20f));
         }
         if (s.drifting) {
-            sb.append("§7[");
+            sb.append(" §7[");
             for (int i = 0; i < CHARGE_PERIOD / 2; i++) {
                 boolean cur = s.charge >= i * 2 && s.charge < i * 2 + 2;
                 boolean win = i * 2 >= WINDOW_OPEN && i * 2 + 1 <= WINDOW_CLOSE;
@@ -334,9 +396,7 @@ public final class KartPhysics {
             }
             sb.append("§7] §6").append("▮".repeat(s.pending));
         }
-        if (sb.length() > 0) {
-            HUD.accept(Component.literal(sb.toString()));
-        }
+        HUD.accept(Component.literal(sb.toString()));
     }
 
     private static void sfx(AbstractHorse h, SoundEvent e, float pitch) {

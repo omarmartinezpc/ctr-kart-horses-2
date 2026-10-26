@@ -44,12 +44,23 @@ public class KartMod implements ModInitializer {
             Items.SUGAR, 20 * 5,
             Items.WHEAT, 20 * 4);
 
+    /** Comida -> energia que recibe el kart (0..100). */
+    private static final Map<Item, Integer> FOOD_ENERGY = Map.of(
+            Items.APPLE, 15,
+            Items.GOLDEN_CARROT, 25,
+            Items.GOLDEN_APPLE, 40,
+            Items.ENCHANTED_GOLDEN_APPLE, 100,
+            Items.CARROT, 12,
+            Items.SUGAR, 10,
+            Items.WHEAT, 8);
+
     private static final Map<UUID, Integer> SUPER = new ConcurrentHashMap<>(); // ticks restantes (servidor)
     private static final Map<UUID, Integer> LAST_CLASS = new ConcurrentHashMap<>();
 
     @Override
     public void onInitialize() {
         PayloadTypeRegistry.clientboundPlay().register(KartSyncPayload.TYPE, KartSyncPayload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(KartEnergyPayload.TYPE, KartEnergyPayload.CODEC);
 
         UseEntityCallback.EVENT.register(KartMod::onUseEntity);
 
@@ -110,7 +121,8 @@ public class KartMod implements ModInitializer {
             return InteractionResult.PASS;
         }
         ItemStack stack = player.getItemInHand(hand);
-        Integer ticks = FOOD.get(stack.getItem());
+        Item item = stack.getItem(); // antes de gastar el objeto
+        Integer ticks = FOOD.get(item);
         if (ticks == null) {
             return InteractionResult.PASS;
         }
@@ -120,6 +132,13 @@ public class KartMod implements ModInitializer {
         }
         horse.playSound(SoundEvents.HORSE_EAT, 1.0f, 1.0f);
         broadcast(horse, cls);
+        Integer energy = FOOD_ENERGY.get(item);
+        if (energy != null) {
+            KartEnergyPayload ep = new KartEnergyPayload(horse.getId(), energy);
+            for (ServerPlayer p : PlayerLookup.tracking(horse)) {
+                ServerPlayNetworking.send(p, ep);
+            }
+        }
         return InteractionResult.SUCCESS;
     }
 

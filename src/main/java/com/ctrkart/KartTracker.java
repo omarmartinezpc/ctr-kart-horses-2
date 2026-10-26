@@ -7,6 +7,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /** Cliente: que caballos son karts (las etiquetas de entidad NO se sincronizan a los clientes). */
 public final class KartTracker {
     private static final Map<Integer, KartState> STATES = new ConcurrentHashMap<>();
+    /** true cuando el modelo de kart se creo bien: solo entonces se oculta el caballo. */
+    public static volatile boolean modelReady;
 
     private KartTracker() {}
 
@@ -33,7 +35,16 @@ public final class KartTracker {
         s.superTicks = p.superTicks();
     }
 
+    /** Energia recibida al alimentar al caballo (la envia el servidor). */
+    public static void addEnergy(int entityId, int amount) {
+        KartState s = STATES.get(entityId);
+        if (s != null) {
+            s.energy = Math.min(KartPhysics.ENERGY_MAX, s.energy + amount);
+        }
+    }
+
     public static void clear() {
         STATES.clear();
+        modelReady = false;
     }
 }
