@@ -1,0 +1,7 @@
+{
+  "kart.engine": {
+    "sounds": [
+      { "name": "ctrkart:kart_engine", "stream": false }
+    ]
+  }
+}

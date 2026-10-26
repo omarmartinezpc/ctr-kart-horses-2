@@ -16,6 +16,8 @@ import net.minecraft.sounds.SoundEvents;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.animal.equine.AbstractHorse; // si no existe: ...animal.horse.AbstractHorse
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
@@ -30,6 +32,8 @@ public class KartMod implements ModInitializer {
     public static final String MOD_ID = "ctrkart";
 
     private static final int SUPER_MAX = 20 * 45;
+    /** Los karts son mas bajos que un caballo: asi el jugador va sentado a la altura del modelo. */
+    private static final double KART_SCALE = 0.6;
     /** Comida -> ticks de Super Motor (la manzana hace de Wumpa Fruit). */
     private static final Map<Item, Integer> FOOD = Map.of(
             Items.APPLE, 20 * 8,
@@ -83,6 +87,7 @@ public class KartMod implements ModInitializer {
 
             int prev = LAST_CLASS.getOrDefault(id, -1);
             if (prev != cls) {
+                setScale(horse, cls >= 0 ? KART_SCALE : 1.0);
                 if (cls < 0) {
                     LAST_CLASS.remove(id);
                     SUPER.remove(id);
@@ -116,6 +121,13 @@ public class KartMod implements ModInitializer {
         horse.playSound(SoundEvents.HORSE_EAT, 1.0f, 1.0f);
         broadcast(horse, cls);
         return InteractionResult.SUCCESS;
+    }
+
+    private static void setScale(AbstractHorse horse, double value) {
+        AttributeInstance a = horse.getAttribute(Attributes.SCALE);
+        if (a != null && a.getBaseValue() != value) {
+            a.setBaseValue(value);
+        }
     }
 
     private static void broadcast(AbstractHorse horse, int cls) {

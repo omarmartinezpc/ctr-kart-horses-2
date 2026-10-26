@@ -1,7 +1,9 @@
 package com.ctrkart;
 
 import java.lang.reflect.Method;
+import com.ctrkart.client.KartVisuals;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
@@ -15,6 +17,7 @@ public class KartModClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         KartPhysics.HUD = KartModClient::showOverlay;
+        ClientTickEvents.END_CLIENT_TICK.register(client -> KartVisuals.tick(client));
         ClientPlayNetworking.registerGlobalReceiver(KartSyncPayload.TYPE,
                 (payload, context) -> KartTracker.apply(payload)); // Fabric ya lo ejecuta en el hilo principal
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> KartTracker.clear());

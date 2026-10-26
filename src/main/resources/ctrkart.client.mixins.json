@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "package": "com.ctrkart.mixin.client",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "EntityRendererMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

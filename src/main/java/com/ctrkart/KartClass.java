@@ -18,6 +18,9 @@ public enum KartClass {
     BIG("kart_big", 0.55, 0.014, 3.6f);
 
     public static final String BASE_TAG = "kart";
+    /** Etiqueta opcional: gira el modelo 180 grados si te aparece mirando hacia atras. */
+    public static final String FLIP_TAG = "kart_flip";
+    public static final int FLIP_BASE = 100;
 
     public final String tag;
     public final double top;
@@ -67,11 +70,13 @@ public enum KartClass {
         if (!tags.contains(BASE_TAG)) {
             return -1;
         }
+        int id = BALANCED.ordinal();
         for (KartClass c : values()) {
             if (c != BALANCED && tags.contains(c.tag)) {
-                return c.ordinal();
+                id = c.ordinal();
+                break;
             }
         }
-        return BALANCED.ordinal();
+        return tags.contains(FLIP_TAG) ? id + FLIP_BASE : id; // >= 100 = modelo girado
     }
 }

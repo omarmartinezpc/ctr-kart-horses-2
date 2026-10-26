@@ -4,6 +4,7 @@ package com.ctrkart;
 public final class KartState {
     public KartClass kartClass = KartClass.BALANCED;
     public int superTicks; // Super Motor restante (lo fija el servidor al alimentar)
+    public boolean flip;   // modelo girado 180 grados (etiqueta kart_flip)
 
     // --- estado dinamico (se reinicia al bajarse) ---
     public long lastTick = Long.MIN_VALUE;
@@ -20,6 +21,8 @@ public final class KartState {
     public int fireLevel;      // 0 sin fuego, 1 rojo, 2 amarillo, 3 azul
     public int chain;          // turbos encadenados sin que el fuego se apague
     public boolean sacred;     // Sacred Fire
+    public boolean hasLast;    // para detectar choques reales contra paredes
+    public double lastX, lastY, lastZ, appliedSpeed;
 
     public void resetDynamic() {
         moveYaw = 0;
@@ -37,5 +40,7 @@ public final class KartState {
         fireLevel = 0;
         chain = 0;
         sacred = false;
+        hasLast = false;
+        appliedSpeed = 0;
     }
 }
