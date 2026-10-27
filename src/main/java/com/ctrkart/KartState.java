@@ -21,9 +21,11 @@ public final class KartState {
     public double airMaxY;     // altura maxima alcanzada en el aire (para medir la caida)
     public int boostTicks;     // turbo de derrape restante (rojo/amarillo/azul)
     public int fireLevel;      // 0 sin fuego, 1 rojo, 2 amarillo, 3 azul
-    public int chain;          // turbos encadenados sin que el fuego se apague
     public boolean sacred;     // Sacred Fire activo
-    public int sacredTicks;    // duracion base restante del Sacred Fire (despues gasta energia)
+    public boolean chainBonus; // 3 Sacred Fire de derrape seguidos: un poco mas de velocidad mientras duren las reservas
+    /** Memoria de los ultimos 3 Sacred Fire hechos con ESPACIO (true = se logro con el anterior aun activo). */
+    public final boolean[] strikeChained = new boolean[3];
+    public int strikeCount;    // cuantos hay guardados (0..3)
     public boolean hasLast;    // para detectar choques reales contra paredes
     public double lastX, lastY, lastZ, appliedSpeed;
 
@@ -42,9 +44,10 @@ public final class KartState {
         airMaxY = 0;
         boostTicks = 0;
         fireLevel = 0;
-        chain = 0;
         sacred = false;
-        sacredTicks = 0;
+        chainBonus = false;
+        strikeCount = 0;
+        java.util.Arrays.fill(strikeChained, false);
         hasLast = false;
         appliedSpeed = 0;
     }
