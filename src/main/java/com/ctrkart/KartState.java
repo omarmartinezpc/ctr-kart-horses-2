@@ -6,6 +6,7 @@ public final class KartState {
     public int superTicks;   // Super Motor restante (lo fija el servidor al alimentar)
     public boolean flip;     // modelo girado 180 grados (etiqueta kart_flip)
     public float energy;     // ENERGIA 0..100: se conserva aunque te bajes del kart
+    public int sacredEvents; // sube 1 con cada Sacred Fire asestado (el sonido del motor reacciona a esto)
 
     // --- estado dinamico (se reinicia al montar) ---
     public long lastTick = Long.MIN_VALUE;

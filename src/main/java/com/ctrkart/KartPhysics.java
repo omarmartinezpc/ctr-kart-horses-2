@@ -313,6 +313,7 @@ public final class KartPhysics {
     }
 
     private static void sacredBurst(AbstractHorse horse, KartState s) {
+        s.sacredEvents++;
         Level level = horse.level();
         RandomSource r = horse.getRandom();
         sfx(horse, KartSounds.nextSacred(), 0.9f, 1.0f); // uno de los 3 sonidos, alternando

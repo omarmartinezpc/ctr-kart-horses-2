@@ -2,7 +2,6 @@ package com.ctrkart.client;
 
 import com.ctrkart.KartMod;
 import com.ctrkart.KartPhysics;
-import com.ctrkart.KartSounds;
 import com.ctrkart.KartState;
 import com.ctrkart.KartTracker;
 import java.lang.reflect.Method;
@@ -14,7 +13,6 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
-import net.minecraft.sounds.SoundSource;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.Display;
 import net.minecraft.world.entity.Entity;
@@ -30,6 +28,7 @@ import net.minecraft.world.item.Items;
 public final class KartVisuals {
     private static final Map<Integer, Display.ItemDisplay> DISPLAYS = new HashMap<>();
     private static final Map<Integer, double[]> LAST_POS = new HashMap<>();
+    private static final Map<Integer, KartEngineSound> ENGINES = new HashMap<>();
     private static ClientLevel lastLevel;
     private static ItemStack stack;
     private static boolean failed;
@@ -44,6 +43,7 @@ public final class KartVisuals {
         if (level != lastLevel) {
             DISPLAYS.clear();
             LAST_POS.clear();
+            ENGINES.clear();
             lastLevel = level;
         }
         if (level == null) {
@@ -64,13 +64,22 @@ public final class KartVisuals {
         }
 
         LAST_POS.keySet().removeIf(k -> KartTracker.get(k) == null);
+        Iterator<Map.Entry<Integer, KartEngineSound>> eit = ENGINES.entrySet().iterator();
+        while (eit.hasNext()) {
+            Map.Entry<Integer, KartEngineSound> en = eit.next();
+            Entity h = level.getEntity(en.getKey());
+            if (h == null || h.isRemoved() || KartTracker.get(en.getKey()) == null) {
+                en.getValue().requestStop();
+                eit.remove();
+            }
+        }
 
         for (Map.Entry<Integer, KartState> e : KartTracker.entries()) {
             Entity horse = level.getEntity(e.getKey());
             if (horse == null || horse.isRemoved()) {
                 continue;
             }
-            engineSound(level, horse, e.getKey());
+            updateEngine(mc, horse, e.getKey(), e.getValue());
             if (KartTracker.modelReady) {
                 horse.setInvisible(true); // el caballo no se ve; solo el modelo de kart
             }
@@ -92,18 +101,26 @@ public final class KartVisuals {
         }
     }
 
-    /** Motor de prueba: un trozo corto de audio repetido cada 3 ticks, mas agudo cuanto mas rapido va el kart. */
-    private static void engineSound(ClientLevel level, Entity horse, int id) {
+    /** Motor en bucle: suena mientras alguien va montado; su tono y volumen los gobierna KartEngineSound. */
+    private static void updateEngine(Minecraft mc, Entity horse, int id, KartState st) {
         double[] last = LAST_POS.get(id);
         double speed = last == null ? 0.0 : Math.hypot(horse.getX() - last[0], horse.getZ() - last[1]);
         LAST_POS.put(id, new double[] {horse.getX(), horse.getZ()});
-        if (!horse.isVehicle() || (level.getGameTime() + id) % 3 != 0) {
-            return; // solo suena con alguien montado
+
+        KartEngineSound eng = ENGINES.get(id);
+        if (!horse.isVehicle()) {
+            if (eng != null) {
+                eng.requestStop();
+                ENGINES.remove(id);
+            }
+            return;
         }
-        float pitch = (float) Math.min(2.0, 0.6 + speed * 2.0); // 0.6 parado -> 2.0 a gran velocidad
-        float volume = speed < 0.02 ? 0.12f : 0.28f;
-        level.playLocalSound(horse.getX(), horse.getY(), horse.getZ(), KartSounds.ENGINE,
-                SoundSource.NEUTRAL, volume, pitch, false);
+        if (eng == null) {
+            eng = new KartEngineSound(horse);
+            ENGINES.put(id, eng);
+            mc.getSoundManager().play(eng);
+        }
+        eng.update(speed, st);
     }
 
     private static Display.ItemDisplay create(ClientLevel level, int horseId) {
