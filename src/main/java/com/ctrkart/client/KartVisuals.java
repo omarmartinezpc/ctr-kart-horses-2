@@ -131,8 +131,7 @@ public final class KartVisuals {
             return;
         }
         diagCooldown = 200;
-        System.out.println("[ctrkart] jinete: controlador=" + horse.getControllingPassenger()
-                + " controlLocal=" + horse.isControlledByLocalInstance());
+        System.out.println("[ctrkart] jinete: controlador=" + horse.getControllingPassenger());
     }
 
     private static void findSaddle() {
