@@ -44,6 +44,12 @@ public final class KartVisuals {
     private static EquipmentSlot saddleSlot;
     private static DataComponentType<?> equippableType;
     private static boolean saddleSearched;
+    /**
+     * DESACTIVADO: quitar el aspecto de la silla en el cliente dejaba al jugador sin control del kart
+     * (el juego deja de considerar al caballo ensillado). Se deja el codigo por si se quiere probar otra vez.
+     */
+    private static final boolean HIDE_SADDLE_ITEM = false;
+    private static int diagCooldown;
 
     private KartVisuals() {}
 
@@ -91,9 +97,12 @@ public final class KartVisuals {
                 continue;
             }
             updateEngine(mc, horse, e.getKey(), e.getValue());
+            diagnose(horse);
             if (KartTracker.modelReady) {
                 horse.setInvisible(true); // el caballo no se ve; solo el modelo de kart
-                hideSaddle(horse);        // y su silla tampoco (las capas de equipo se dibujan aunque sea invisible)
+                if (HIDE_SADDLE_ITEM) {
+                    hideSaddle(horse);
+                }
             }
 
             if (failed) {
@@ -111,6 +120,19 @@ public final class KartVisuals {
             d.setYRot(horse.getYRot() + (e.getValue().flip ? 180f : 0f));
             d.setXRot(0f);
         }
+    }
+
+    /** Cada 10 s mientras alguien va montado, escribe en el log quien controla el kart (para detectar problemas). */
+    private static void diagnose(Entity horse) {
+        if (!horse.isVehicle()) {
+            return;
+        }
+        if (diagCooldown-- > 0) {
+            return;
+        }
+        diagCooldown = 200;
+        System.out.println("[ctrkart] jinete: controlador=" + horse.getControllingPassenger()
+                + " controlLocal=" + horse.isControlledByLocalInstance());
     }
 
     private static void findSaddle() {
