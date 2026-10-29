@@ -60,9 +60,9 @@ public final class KartPhysics {
     static final float FALL_ENERGY_MIN = 10f;
     static final float FALL_ENERGY_MAX = 100f;
     // Escape del modelo de kart (bloques, relativo al centro del kart)
-    static final double EXHAUST_BACK = 0.9;
-    static final double EXHAUST_SIDE = 0.20;
-    static final double EXHAUST_Y = 0.25;
+    static final double EXHAUST_BACK = 0.72;
+    static final double EXHAUST_SIDE = 0.225;
+    static final double EXHAUST_Y = 0.62;
 
     private static final DustParticleOptions FIRE_RED = new DustParticleOptions(0xFF2A2A, 1.3f);
     private static final DustParticleOptions FIRE_YELLOW = new DustParticleOptions(0xFFD21E, 1.3f);
@@ -358,7 +358,7 @@ public final class KartPhysics {
         }
         if (s.drifting && horse.onGround()) {
             for (int side = -1; side <= 1; side += 2) { // humo + chispas del color del nivel en las ruedas traseras
-                Vec3 w = local(horse, s, bodyYaw, 0.45, side * 0.5, 0.1);
+                Vec3 w = local(horse, s, bodyYaw, 0.35, side * 0.46, 0.1);
                 level.addParticle(ParticleTypes.CLOUD, w.x, w.y, w.z, 0, 0.02, 0);
                 if (s.pending >= 1) {
                     level.addParticle(tierColor(s.pending), w.x, w.y + 0.1, w.z,
