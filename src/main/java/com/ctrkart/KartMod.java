@@ -10,6 +10,7 @@ import net.fabricmc.fabric.api.networking.v1.EntityTrackingEvents;
 import net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry;
 import net.fabricmc.fabric.api.networking.v1.PlayerLookup;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -17,6 +18,7 @@ import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.animal.equine.AbstractHorse; // si no existe: ...animal.horse.AbstractHorse
 import net.minecraft.world.entity.player.Player;
@@ -54,6 +56,9 @@ public class KartMod implements ModInitializer {
             Items.SUGAR, 10,
             Items.WHEAT, 8);
 
+    /** Modificador temporal (no se guarda con el jugador) que lo encoge mientras conduce un kart. */
+    private static final Identifier RIDER_SCALE_ID = Identifier.fromNamespaceAndPath(MOD_ID, "rider_scale");
+
     private static final Map<UUID, Integer> SUPER = new ConcurrentHashMap<>(); // ticks restantes (servidor)
     private static final Map<UUID, Integer> LAST_CLASS = new ConcurrentHashMap<>();
 
@@ -79,6 +84,7 @@ public class KartMod implements ModInitializer {
 
     /** Cada 10 ticks: detecta /tag add|remove kart y descuenta el Super Motor. */
     private static void tickLevel(ServerLevel level) {
+        updateRiders(level);
         if (level.getGameTime() % 10L != 0L) {
             return;
         }
@@ -106,6 +112,30 @@ public class KartMod implements ModInitializer {
                     LAST_CLASS.put(id, cls);
                 }
                 broadcast(horse, cls);
+            }
+        }
+    }
+
+    /** Clase del kart en el servidor (-1 si el caballo no es un kart; >= 100 = modelo girado). */
+    public static int serverClass(Entity e) {
+        return LAST_CLASS.getOrDefault(e.getUUID(), -1);
+    }
+
+    /** El jugador que conduce un kart va mas pequeno (KartSeat.RIDER_SCALE) para encajar en el asiento. */
+    private static void updateRiders(ServerLevel level) {
+        for (ServerPlayer p : level.players()) {
+            AttributeInstance a = p.getAttribute(Attributes.SCALE);
+            if (a == null) {
+                continue;
+            }
+            Entity v = p.getVehicle();
+            boolean onKart = v instanceof AbstractHorse && LAST_CLASS.containsKey(v.getUUID());
+            boolean has = a.getModifier(RIDER_SCALE_ID) != null;
+            if (onKart && !has) {
+                a.addTransientModifier(new AttributeModifier(RIDER_SCALE_ID, KartSeat.RIDER_SCALE - 1.0,
+                        AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
+            } else if (!onKart && has) {
+                a.removeModifier(RIDER_SCALE_ID);
             }
         }
     }

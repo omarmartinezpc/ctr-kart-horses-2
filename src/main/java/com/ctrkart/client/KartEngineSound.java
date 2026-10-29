@@ -22,7 +22,7 @@ public final class KartEngineSound extends AbstractTickableSoundInstance {
     private boolean stopRequested;
     private float kick;
     private float dip = 1.0f;
-    private float curPitch = 0.62f;
+    private float curPitch = 0.50f;
     private float curVolume = 0.01f;
     private int lastEvents = -1;
 
@@ -32,7 +32,7 @@ public final class KartEngineSound extends AbstractTickableSoundInstance {
         this.looping = true;
         this.delay = 0;
         this.volume = 0.01f;
-        this.pitch = 0.62f;
+        this.pitch = 0.50f;
         this.x = horse.getX();
         this.y = horse.getY();
         this.z = horse.getZ();
@@ -42,14 +42,15 @@ public final class KartEngineSound extends AbstractTickableSoundInstance {
     public void update(double speed, KartState st) {
         double r = Math.max(0.0, speed / st.kartClass.top); // 1.0 = velocidad maxima base
 
-        // tono segun la velocidad: reposo 0.62, marcha ~0.83, maximo 1.0, con turbos hasta ~1.2
+        // tono segun la velocidad (mas grave que antes): reposo 0.50 (el minimo del juego), marcha ~0.62,
+        // maximo 0.78, con turbos hasta ~0.95
         float base;
         if (r <= 0.6) {
-            base = (float) (0.62 + 0.35 * r);
+            base = (float) (0.50 + 0.20 * r);
         } else if (r <= 1.0) {
-            base = (float) (0.83 + 0.425 * (r - 0.6));
+            base = (float) (0.62 + 0.40 * (r - 0.6));
         } else {
-            base = (float) (1.0 + 0.2 * Math.min(r - 1.0, 0.55) / 0.55);
+            base = (float) (0.78 + 0.17 * Math.min(r - 1.0, 0.55) / 0.55);
         }
 
         // interaccion con el Sacred Fire: salto al asestarlo, que decae; baja un poco mientras cargas el derrape

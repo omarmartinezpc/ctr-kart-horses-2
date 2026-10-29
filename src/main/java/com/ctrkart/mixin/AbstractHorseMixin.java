@@ -1,10 +1,13 @@
 package com.ctrkart.mixin;
 
 import com.ctrkart.KartPhysics;
+import com.ctrkart.KartSeat;
 import com.ctrkart.KartState;
 import com.ctrkart.KartTracker;
+import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.animal.equine.AbstractHorse; // si no existe: net.minecraft.world.entity.animal.horse.AbstractHorse
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
@@ -39,5 +42,13 @@ public abstract class AbstractHorseMixin {
         }
         KartPhysics.tick(self, player, state);
         ci.cancel(); // anula rotacion/salto de vanilla
+    }
+
+    /** Sin ruido de cascos: un kart no tiene patas. (Se cancela en servidor, que es quien lo reproduce.) */
+    @Inject(method = "playStepSound", at = @At("HEAD"), cancellable = true, require = 0)
+    private void ctrkart$noHoofSteps(BlockPos pos, BlockState state, CallbackInfo ci) {
+        if (KartSeat.isKart((AbstractHorse) (Object) this)) {
+            ci.cancel();
+        }
     }
 }

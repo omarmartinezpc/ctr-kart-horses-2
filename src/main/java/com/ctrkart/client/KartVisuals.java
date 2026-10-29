@@ -10,13 +10,16 @@ import java.util.Iterator;
 import java.util.Map;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.Display;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
@@ -36,6 +39,12 @@ public final class KartVisuals {
     private static final int FAKE_ID_BASE = -1_000_000;
     private static EntityType<?> itemDisplayType;
 
+    // --- silla de montar: se le quita el "aspecto" en el cliente (sigue contando como ensillado) ---
+    private static final Map<Integer, ItemStack> REAL_SADDLES = new HashMap<>();
+    private static EquipmentSlot saddleSlot;
+    private static DataComponentType<?> equippableType;
+    private static boolean saddleSearched;
+
     private KartVisuals() {}
 
     public static void tick(Minecraft mc) {
@@ -44,6 +53,7 @@ public final class KartVisuals {
             DISPLAYS.clear();
             LAST_POS.clear();
             ENGINES.clear();
+            REAL_SADDLES.clear();
             lastLevel = level;
         }
         if (level == null) {
@@ -57,6 +67,7 @@ public final class KartVisuals {
             if (horse == null || horse.isRemoved() || KartTracker.get(e.getKey()) == null) {
                 if (horse != null && !horse.isRemoved()) {
                     horse.setInvisible(false);
+                    restoreSaddle(horse);
                 }
                 e.getValue().discard();
                 it.remove();
@@ -82,6 +93,7 @@ public final class KartVisuals {
             updateEngine(mc, horse, e.getKey(), e.getValue());
             if (KartTracker.modelReady) {
                 horse.setInvisible(true); // el caballo no se ve; solo el modelo de kart
+                hideSaddle(horse);        // y su silla tampoco (las capas de equipo se dibujan aunque sea invisible)
             }
 
             if (failed) {
@@ -98,6 +110,56 @@ public final class KartVisuals {
             d.setPos(horse.getX(), horse.getY(), horse.getZ());
             d.setYRot(horse.getYRot() + (e.getValue().flip ? 180f : 0f));
             d.setXRot(0f);
+        }
+    }
+
+    private static void findSaddle() {
+        saddleSearched = true;
+        for (EquipmentSlot sl : EquipmentSlot.values()) {
+            if (sl.name().equals("SADDLE")) {
+                saddleSlot = sl;
+            }
+        }
+        try {
+            Object o = DataComponents.class.getField("EQUIPPABLE").get(null);
+            if (o instanceof DataComponentType<?> t) {
+                equippableType = t;
+            }
+        } catch (ReflectiveOperationException ignored) {
+            // sin esto no se puede ocultar la silla, pero el resto funciona
+        }
+        if (saddleSlot == null || equippableType == null) {
+            System.err.println("[ctrkart] No pude preparar el ocultado de la silla (slot=" + saddleSlot
+                    + ", componente=" + equippableType + ")");
+        }
+    }
+
+    /** Quita al objeto de la silla su componente de equipo: sigue ensillado, pero la capa de la silla no se dibuja. */
+    private static void hideSaddle(Entity e) {
+        if (!(e instanceof LivingEntity horse)) {
+            return;
+        }
+        if (!saddleSearched) {
+            findSaddle();
+        }
+        if (saddleSlot == null || equippableType == null) {
+            return;
+        }
+        ItemStack cur = horse.getItemBySlot(saddleSlot);
+        if (cur.isEmpty() || cur.get(equippableType) == null) {
+            return; // vacia o ya oculta
+        }
+        REAL_SADDLES.put(horse.getId(), cur);
+        ItemStack copy = cur.copy();
+        copy.remove(equippableType);
+        horse.setItemSlot(saddleSlot, copy);
+    }
+
+    /** Si el caballo deja de ser kart, vuelve a tener su silla normal. */
+    private static void restoreSaddle(Entity e) {
+        ItemStack real = REAL_SADDLES.remove(e.getId());
+        if (real != null && saddleSlot != null && e instanceof LivingEntity horse) {
+            horse.setItemSlot(saddleSlot, real);
         }
     }
 

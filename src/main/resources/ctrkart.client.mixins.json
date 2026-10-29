@@ -3,7 +3,8 @@
   "package": "com.ctrkart.mixin.client",
   "compatibilityLevel": "JAVA_21",
   "client": [
-    "EntityRendererMixin"
+    "EntityRendererMixin",
+    "EntityShouldRenderMixin"
   ],
   "injectors": {
     "defaultRequire": 0
