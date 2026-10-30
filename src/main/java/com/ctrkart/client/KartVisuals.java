@@ -2,6 +2,7 @@ package com.ctrkart.client;
 
 import com.ctrkart.KartMod;
 import com.ctrkart.KartPhysics;
+import com.ctrkart.KartSeat;
 import com.ctrkart.KartState;
 import com.ctrkart.KartTracker;
 import java.lang.reflect.Constructor;
@@ -33,11 +34,40 @@ import net.minecraft.world.item.Items;
  * (sin retraso, porque no pasa por el servidor). El caballo en si se oculta con EntityRendererMixin.
  */
 public final class KartVisuals {
-    private static final Map<Integer, Display.ItemDisplay> DISPLAYS = new HashMap<>();
+    /** Todo lo que se dibuja de un kart: el cuerpo y las 4 ruedas (entidades de display, solo en el cliente). */
+    private static final class Rig {
+        Display.ItemDisplay body;
+        final Display.ItemDisplay[] wheels = new Display.ItemDisplay[4];
+        boolean wheelsTried;
+        double spin;               // giro acumulado de las ruedas, en grados
+        double lastX, lastZ;
+        boolean hasLast;
+        int lastSacred = -1;       // para detectar un Sacred Fire nuevo
+        int wheelieTick = -1;      // -1 = sin caballito
+        int wheelieTotal;
+    }
+
+    private static final Map<Integer, Rig> RIGS = new HashMap<>();
+
+    // --- animacion ---
+    /** Grados que gira la rueda por tick por cada bloque/tick de velocidad (sube y baja con la velocidad). */
+    private static final double WHEEL_SPIN = 100.0;
+    private static final double WHEEL_SPIN_MAX = 120.0;
+    /** Inclinacion maxima del caballito (grados). */
+    private static final float WHEELIE_MAX = 28f;
+    /** Duracion del caballito: 2 s con pocas reservas, 4 s con las reservas llenas (en ticks). */
+    private static final int WHEELIE_MIN_TICKS = 40;
+    private static final int WHEELIE_EXTRA_TICKS = 40;
+    // posicion de cada rueda respecto al centro del kart, en bloques: derecha, arriba, delante
+    private static final double[] W_LAT = {0.46875, -0.46875, 0.4625, -0.4625};
+    private static final double[] W_UP = {0.197, 0.197, 0.21875, 0.21875};
+    private static final double[] W_FWD = {0.4906, 0.4906, -0.3469, -0.3469};
+    private static final String[] W_MODEL = {"kart_wheel_front", "kart_wheel_front", "kart_wheel_rear", "kart_wheel_rear"};
+    private static boolean wheelsFailed;
     private static final Map<Integer, double[]> LAST_POS = new HashMap<>();
     private static final Map<Integer, KartEngineSound> ENGINES = new HashMap<>();
     private static ClientLevel lastLevel;
-    private static ItemStack stack;
+    private static final Map<String, ItemStack> STACKS = new HashMap<>();
     private static boolean failed;
     /** Ids negativos para no chocar con los ids de entidades reales del servidor. */
     private static final int FAKE_ID_BASE = -1_000_000;
@@ -65,7 +95,7 @@ public final class KartVisuals {
     public static void tick(Minecraft mc) {
         ClientLevel level = mc.level;
         if (level != lastLevel) {
-            DISPLAYS.clear();
+            RIGS.clear();
             LAST_POS.clear();
             ENGINES.clear();
             REAL_SADDLES.clear();
@@ -76,16 +106,22 @@ public final class KartVisuals {
             return;
         }
 
-        Iterator<Map.Entry<Integer, Display.ItemDisplay>> it = DISPLAYS.entrySet().iterator();
+        Iterator<Map.Entry<Integer, Rig>> it = RIGS.entrySet().iterator();
         while (it.hasNext()) {
-            Map.Entry<Integer, Display.ItemDisplay> e = it.next();
+            Map.Entry<Integer, Rig> e = it.next();
             Entity horse = level.getEntity(e.getKey());
             if (horse == null || horse.isRemoved() || KartTracker.get(e.getKey()) == null) {
                 if (horse != null && !horse.isRemoved()) {
                     horse.setInvisible(false);
                     restoreSaddle(horse);
                 }
-                e.getValue().discard();
+                Rig old = e.getValue();
+                old.body.discard();
+                for (Display.ItemDisplay w : old.wheels) {
+                    if (w != null) {
+                        w.discard();
+                    }
+                }
                 it.remove();
             }
         }
@@ -119,17 +155,123 @@ public final class KartVisuals {
             if (failed) {
                 continue;
             }
-            Display.ItemDisplay d = DISPLAYS.get(e.getKey());
-            if (d == null) {
-                d = create(level, e.getKey());
-                if (d == null) {
+            Rig rig = RIGS.get(e.getKey());
+            if (rig == null) {
+                Display.ItemDisplay body = create(level, FAKE_ID_BASE - e.getKey(), "kart", true);
+                if (body == null) {
                     continue;
                 }
-                DISPLAYS.put(e.getKey(), d);
+                rig = new Rig();
+                rig.body = body;
+                RIGS.put(e.getKey(), rig);
             }
-            d.setPos(horse.getX(), horse.getY(), horse.getZ());
-            d.setYRot(horse.getYRot() + (e.getValue().flip ? 180f : 0f));
-            d.setXRot(0f);
+            if (!rig.wheelsTried && !wheelsFailed) {
+                rig.wheelsTried = true;
+                createWheels(level, e.getKey(), rig);
+            }
+            animate(horse, e.getValue(), rig);
+        }
+    }
+
+    private static void createWheels(ClientLevel level, int horseId, Rig rig) {
+        for (int i = 0; i < 4; i++) {
+            Display.ItemDisplay w = create(level, FAKE_ID_BASE - 100_000_000 * (i + 1) - horseId, W_MODEL[i], false);
+            if (w == null) {
+                wheelsFailed = true;
+                System.err.println("[ctrkart] No pude crear las ruedas animadas; el kart se ve sin ruedas.");
+                return;
+            }
+            rig.wheels[i] = w;
+        }
+    }
+
+    private static double smooth(double x) {
+        double c = Math.max(0.0, Math.min(1.0, x));
+        return c * c * (3.0 - 2.0 * c);
+    }
+
+    /** Coloca el cuerpo y las ruedas cada tick: giro de ruedas segun la velocidad real y caballito tras un Sacred Fire. */
+    private static void animate(Entity horse, KartState st, Rig rig) {
+        float yd = horse.getYRot() + (st.flip ? 180f : 0f); // hacia donde mira el modelo
+        double rad = Math.toRadians(yd);
+        double fx = -Math.sin(rad);
+        double fz = Math.cos(rad);
+        double rx = -Math.cos(rad);
+        double rz = -Math.sin(rad);
+
+        // velocidad real (con signo) medida entre ticks
+        double v = 0.0;
+        if (rig.hasLast) {
+            double dx = horse.getX() - rig.lastX;
+            double dz = horse.getZ() - rig.lastZ;
+            double hr = Math.toRadians(horse.getYRot());
+            double along = dx * -Math.sin(hr) + dz * Math.cos(hr);
+            v = Math.hypot(dx, dz);
+            if (along < 0) {
+                v = -v;
+            }
+            if (st.flip) {
+                v = -v; // con kart_flip el modelo mira al reves de la marcha
+            }
+        }
+        rig.lastX = horse.getX();
+        rig.lastZ = horse.getZ();
+        rig.hasLast = true;
+        rig.spin += Math.max(-WHEEL_SPIN_MAX, Math.min(WHEEL_SPIN_MAX, v * WHEEL_SPIN));
+        boolean wrapped = false;
+        if (Math.abs(rig.spin) > 7200.0) {
+            rig.spin %= 360.0;
+            wrapped = true;
+        }
+
+        // caballito: empieza con cada Sacred Fire nuevo y dura 2-4 s segun las reservas
+        if (rig.lastSacred < 0) {
+            rig.lastSacred = st.sacredEvents;
+        }
+        if (st.sacredEvents != rig.lastSacred) {
+            rig.lastSacred = st.sacredEvents;
+            if (rig.wheelieTick < 0 && horse.isVehicle()) {
+                float reserves = Math.max(0f, Math.min(100f, st.energy));
+                rig.wheelieTick = 0;
+                rig.wheelieTotal = WHEELIE_MIN_TICKS + Math.round(WHEELIE_EXTRA_TICKS * reserves / 100f);
+            }
+        }
+        float phi = 0f;
+        if (rig.wheelieTick >= 0) {
+            rig.wheelieTick++;
+            if (!st.sacred && rig.wheelieTotal > rig.wheelieTick + 10) {
+                rig.wheelieTotal = rig.wheelieTick + 10; // se acabo el Sacred Fire: baja ya
+            }
+            if (rig.wheelieTick >= rig.wheelieTotal || !horse.isVehicle()) {
+                rig.wheelieTick = -1;
+            } else {
+                double t = rig.wheelieTick;
+                double e = Math.min(smooth(t / 8.0), smooth((rig.wheelieTotal - t) / 10.0));
+                phi = (float) (WHEELIE_MAX * e + 1.5 * Math.sin(t * 0.35) * e);
+            }
+        }
+        st.wheelie = phi; // KartSeat lo usa para subir y echar atras al jugador
+
+        // el cuerpo gira alrededor del eje trasero; las ruedas delanteras lo acompanan
+        double[] bp = KartSeat.pitch(0.0, 0.0, phi);
+        place(rig.body, horse, rx, rz, fx, fz, 0.0, bp[1], bp[0], yd, -phi, wrapped);
+        for (int i = 0; i < 4; i++) {
+            Display.ItemDisplay w = rig.wheels[i];
+            if (w == null) {
+                continue;
+            }
+            double[] p = KartSeat.pitch(W_FWD[i], W_UP[i], phi);
+            place(w, horse, rx, rz, fx, fz, W_LAT[i], p[1], p[0], yd, (float) (rig.spin - phi), wrapped);
+        }
+    }
+
+    private static void place(Display.ItemDisplay d, Entity horse, double rx, double rz, double fx, double fz,
+                              double lat, double up, double fwd, float yaw, float pitch, boolean wrapped) {
+        d.setPos(horse.getX() + rx * lat + fx * fwd, horse.getY() + up, horse.getZ() + rz * lat + fz * fwd);
+        d.setYRot(yaw);
+        d.setXRot(pitch);
+        if (wrapped) {
+            d.xRotO = pitch; // evita un salto al volver el angulo a cero
         }
     }
 
@@ -287,30 +429,37 @@ public final class KartVisuals {
         eng.update(speed, st);
     }
 
-    private static Display.ItemDisplay create(ClientLevel level, int horseId) {
+    private static Display.ItemDisplay create(ClientLevel level, int fakeId, String model, boolean critical) {
         try {
             EntityType<?> type = itemDisplayType();
             if (type == null) {
-                fail("no encontre el tipo de entidad item_display");
-                return null;
+                return critical ? failNull("no encontre el tipo de entidad item_display") : null;
             }
             Display.ItemDisplay d = new Display.ItemDisplay(type, level);
-            d.setId(FAKE_ID_BASE - horseId);
-            if (!setItem(d)) {
-                fail("no encontre el metodo para asignar el objeto al item display; candidatos: " + names(Display.ItemDisplay.class.getDeclaredMethods(), ItemStack.class));
-                return null;
+            d.setId(fakeId);
+            if (!setItem(d, stackFor(model))) {
+                return critical ? failNull("no encontre el metodo para asignar el objeto al item display; candidatos: " + names(Display.ItemDisplay.class.getDeclaredMethods(), ItemStack.class)) : null;
             }
             if (!addToLevel(level, d)) {
-                fail("no encontre el metodo para anadir la entidad al mundo del cliente; candidatos: " + names(level.getClass().getMethods(), Entity.class));
-                return null;
+                return critical ? failNull("no encontre el metodo para anadir la entidad al mundo del cliente; candidatos: " + names(level.getClass().getMethods(), Entity.class)) : null;
             }
-            KartTracker.modelReady = true; // a partir de ahora se oculta el caballo
-            System.out.println("[ctrkart] Modelo de kart creado para el caballo " + horseId);
+            if (critical) {
+                KartTracker.modelReady = true; // a partir de ahora se oculta el caballo
+                System.out.println("[ctrkart] Modelo de kart creado (" + model + ")");
+            }
             return d;
         } catch (Exception ex) {
-            fail("error creando el modelo: " + ex);
+            if (critical) {
+                return failNull("error creando el modelo: " + ex);
+            }
+            System.err.println("[ctrkart] error creando " + model + ": " + ex);
             return null;
         }
+    }
+
+    private static Display.ItemDisplay failNull(String why) {
+        fail(why);
+        return null;
     }
 
     /** El tipo se busca en el registro del juego por su nombre (las constantes de EntityType cambiaron en 26.x). */
@@ -327,21 +476,22 @@ public final class KartVisuals {
         return itemDisplayType;
     }
 
-    private static ItemStack stack() {
-        if (stack == null) {
-            ItemStack s = new ItemStack(Items.STICK);
-            s.set(DataComponents.ITEM_MODEL, Identifier.fromNamespaceAndPath(KartMod.MOD_ID, "kart"));
-            stack = s;
+    private static ItemStack stackFor(String model) {
+        ItemStack st = STACKS.get(model);
+        if (st == null) {
+            st = new ItemStack(Items.STICK);
+            st.set(DataComponents.ITEM_MODEL, Identifier.fromNamespaceAndPath(KartMod.MOD_ID, model));
+            STACKS.put(model, st);
         }
-        return stack;
+        return st;
     }
 
-    private static boolean setItem(Display.ItemDisplay d) throws ReflectiveOperationException {
+    private static boolean setItem(Display.ItemDisplay d, ItemStack item) throws ReflectiveOperationException {
         for (Method m : Display.ItemDisplay.class.getDeclaredMethods()) {
             Class<?>[] p = m.getParameterTypes();
             if (p.length == 1 && p[0] == ItemStack.class && m.getName().toLowerCase().contains("itemstack")) {
                 m.setAccessible(true);
-                m.invoke(d, stack());
+                m.invoke(d, item);
                 return true;
             }
         }
