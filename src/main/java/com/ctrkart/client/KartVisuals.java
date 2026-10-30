@@ -39,7 +39,9 @@ public final class KartVisuals {
         Display.ItemDisplay body;
         final Display.ItemDisplay[] wheels = new Display.ItemDisplay[4];
         boolean wheelsTried;
-        double spin;               // giro acumulado de las ruedas, en grados
+        double spin;               // giro acumulado de las ruedas, en grados (sin limite)
+        final double[] lastPitch = new double[5]; // angulo real del tick anterior: 0 = cuerpo, 1..4 = ruedas
+        final boolean[] hasPitch = new boolean[5];
         double lastX, lastZ;
         boolean hasLast;
         int lastSacred = -1;       // para detectar un Sacred Fire nuevo
@@ -58,6 +60,9 @@ public final class KartVisuals {
     /** Duracion del caballito: 2 s con pocas reservas, 4 s con las reservas llenas (en ticks). */
     private static final int WHEELIE_MIN_TICKS = 40;
     private static final int WHEELIE_EXTRA_TICKS = 40;
+    /** Ticks que tarda en subir y en bajar el morro (antes 8 y 10). */
+    private static final double WHEELIE_UP_TICKS = 5.0;
+    private static final double WHEELIE_DOWN_TICKS = 6.0;
     // posicion de cada rueda respecto al centro del kart, en bloques: derecha, arriba, delante
     private static final double[] W_LAT = {0.46875, -0.46875, 0.4625, -0.4625};
     private static final double[] W_UP = {0.197, 0.197, 0.21875, 0.21875};
@@ -218,11 +223,6 @@ public final class KartVisuals {
         rig.lastZ = horse.getZ();
         rig.hasLast = true;
         rig.spin += Math.max(-WHEEL_SPIN_MAX, Math.min(WHEEL_SPIN_MAX, v * WHEEL_SPIN));
-        boolean wrapped = false;
-        if (Math.abs(rig.spin) > 7200.0) {
-            rig.spin %= 360.0;
-            wrapped = true;
-        }
 
         // caballito: empieza con cada Sacred Fire nuevo y dura 2-4 s segun las reservas
         if (rig.lastSacred < 0) {
@@ -239,14 +239,14 @@ public final class KartVisuals {
         float phi = 0f;
         if (rig.wheelieTick >= 0) {
             rig.wheelieTick++;
-            if (!st.sacred && rig.wheelieTotal > rig.wheelieTick + 10) {
-                rig.wheelieTotal = rig.wheelieTick + 10; // se acabo el Sacred Fire: baja ya
+            if (!st.sacred && rig.wheelieTotal > rig.wheelieTick + (int) WHEELIE_DOWN_TICKS) {
+                rig.wheelieTotal = rig.wheelieTick + (int) WHEELIE_DOWN_TICKS; // se acabo el Sacred Fire: baja ya
             }
             if (rig.wheelieTick >= rig.wheelieTotal || !horse.isVehicle()) {
                 rig.wheelieTick = -1;
             } else {
                 double t = rig.wheelieTick;
-                double e = Math.min(smooth(t / 8.0), smooth((rig.wheelieTotal - t) / 10.0));
+                double e = Math.min(smooth(t / WHEELIE_UP_TICKS), smooth((rig.wheelieTotal - t) / WHEELIE_DOWN_TICKS));
                 phi = (float) (WHEELIE_MAX * e + 1.5 * Math.sin(t * 0.35) * e);
             }
         }
@@ -254,25 +254,35 @@ public final class KartVisuals {
 
         // el cuerpo gira alrededor del eje trasero; las ruedas delanteras lo acompanan
         double[] bp = KartSeat.pitch(0.0, 0.0, phi);
-        place(rig.body, horse, rx, rz, fx, fz, 0.0, bp[1], bp[0], yd, -phi, wrapped);
+        place(rig, 0, rig.body, horse, rx, rz, fx, fz, 0.0, bp[1], bp[0], yd, -phi, false);
         for (int i = 0; i < 4; i++) {
             Display.ItemDisplay w = rig.wheels[i];
             if (w == null) {
                 continue;
             }
             double[] p = KartSeat.pitch(W_FWD[i], W_UP[i], phi);
-            place(w, horse, rx, rz, fx, fz, W_LAT[i], p[1], p[0], yd, (float) (rig.spin - phi), wrapped);
+            place(rig, i + 1, w, horse, rx, rz, fx, fz, W_LAT[i], p[1], p[0], yd, rig.spin - phi, true);
         }
     }
 
-    private static void place(Display.ItemDisplay d, Entity horse, double rx, double rz, double fx, double fz,
-                              double lat, double up, double fwd, float yaw, float pitch, boolean wrapped) {
+    /**
+     * Coloca una pieza. "pitch" es el angulo REAL (sin limite). El juego guarda el angulo de una entidad
+     * recortado/envuelto, y al pasar el limite la interpolacion daba la vuelta al reves ("telefono de rueda").
+     * Por eso: (1) las ruedas se ven igual cada media vuelta (dos marcas opuestas), asi que el angulo guardado
+     * se reduce a [-90, 90); y (2) el angulo del tick anterior se fija a mano como "guardado - giro real",
+     * de modo que la interpolacion siempre avanza en el sentido correcto.
+     */
+    private static void place(Rig rig, int idx, Display.ItemDisplay d, Entity horse, double rx, double rz,
+                              double fx, double fz, double lat, double up, double fwd, float yaw, double pitch,
+                              boolean halfTurnSymmetric) {
         d.setPos(horse.getX() + rx * lat + fx * fwd, horse.getY() + up, horse.getZ() + rz * lat + fz * fwd);
         d.setYRot(yaw);
-        d.setXRot(pitch);
-        if (wrapped) {
-            d.xRotO = pitch; // evita un salto al volver el angulo a cero
-        }
+        double delta = rig.hasPitch[idx] ? pitch - rig.lastPitch[idx] : 0.0;
+        rig.lastPitch[idx] = pitch;
+        rig.hasPitch[idx] = true;
+        double stored = halfTurnSymmetric ? pitch - 180.0 * Math.floor((pitch + 90.0) / 180.0) : pitch;
+        d.setXRot((float) stored);
+        d.xRotO = (float) (stored - delta);
     }
 
     /** Cada 10 s mientras alguien va montado, escribe en el log quien controla el kart (para detectar problemas). */
