@@ -4,10 +4,13 @@ import com.ctrkart.KartMod;
 import com.ctrkart.KartPhysics;
 import com.ctrkart.KartState;
 import com.ctrkart.KartTracker;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
+import java.lang.reflect.RecordComponent;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Optional;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.component.DataComponentType;
@@ -21,6 +24,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Items;
 
 /**
@@ -45,10 +49,15 @@ public final class KartVisuals {
     private static DataComponentType<?> equippableType;
     private static boolean saddleSearched;
     /**
-     * DESACTIVADO: quitar el aspecto de la silla en el cliente dejaba al jugador sin control del kart
-     * (el juego deja de considerar al caballo ensillado). Se deja el codigo por si se quiere probar otra vez.
+     * Oculta la silla en el cliente. Ya NO se quita el componente de equipo entero (eso dejaba al jugador sin
+     * control): solo se vacia el "aspecto" (assetId) para que no se dibuje, y si aun asi el kart se queda sin
+     * conductor, se desactiva solo y se devuelve la silla.
      */
-    private static final boolean HIDE_SADDLE_ITEM = false;
+    private static final boolean HIDE_SADDLE_ITEM = true;
+    private static final Map<Integer, ItemStack> HIDDEN_SADDLES = new HashMap<>();
+    private static boolean saddleDisabled;
+    private static boolean saddleWarned;
+    private static int saddleBadTicks;
     private static int diagCooldown;
 
     private KartVisuals() {}
@@ -60,6 +69,7 @@ public final class KartVisuals {
             LAST_POS.clear();
             ENGINES.clear();
             REAL_SADDLES.clear();
+            HIDDEN_SADDLES.clear();
             lastLevel = level;
         }
         if (level == null) {
@@ -100,8 +110,9 @@ public final class KartVisuals {
             diagnose(horse);
             if (KartTracker.modelReady) {
                 horse.setInvisible(true); // el caballo no se ve; solo el modelo de kart
-                if (HIDE_SADDLE_ITEM) {
+                if (HIDE_SADDLE_ITEM && !saddleDisabled) {
                     hideSaddle(horse);
+                    guardSaddle(horse);
                 }
             }
 
@@ -131,7 +142,8 @@ public final class KartVisuals {
             return;
         }
         diagCooldown = 200;
-        System.out.println("[ctrkart] jinete: controlador=" + horse.getControllingPassenger());
+        System.out.println("[ctrkart] jinete: controlador=" + horse.getControllingPassenger()
+                + " silla-oculta=" + REAL_SADDLES.containsKey(horse.getId()) + (saddleDisabled ? " (desactivada)" : ""));
     }
 
     private static void findSaddle() {
@@ -155,7 +167,53 @@ public final class KartVisuals {
         }
     }
 
-    /** Quita al objeto de la silla su componente de equipo: sigue ensillado, pero la capa de la silla no se dibuja. */
+    /** Copia de la silla con el "aspecto" vacio: sigue siendo una silla valida, pero la capa no se dibuja. */
+    private static ItemStack withoutSaddleAsset(ItemStack cur) {
+        Object eq = cur.get(equippableType);
+        if (eq == null) {
+            return null;
+        }
+        try {
+            RecordComponent[] comps = eq.getClass().getRecordComponents();
+            if (comps == null) {
+                return null;
+            }
+            Object[] vals = new Object[comps.length];
+            Class<?>[] types = new Class<?>[comps.length];
+            boolean changed = false;
+            for (int i = 0; i < comps.length; i++) {
+                types[i] = comps[i].getType();
+                java.lang.reflect.Method acc = comps[i].getAccessor();
+                acc.setAccessible(true);
+                vals[i] = acc.invoke(eq);
+                if (comps[i].getName().equals("assetId")) {
+                    if (vals[i] instanceof Optional<?> o && o.isEmpty()) {
+                        return null; // ya estaba vacio
+                    }
+                    vals[i] = Optional.empty();
+                    changed = true;
+                }
+            }
+            if (!changed) {
+                return null;
+            }
+            Constructor<?> k = eq.getClass().getDeclaredConstructor(types);
+            k.setAccessible(true);
+            Object neu = k.newInstance(vals);
+            ItemStack copy = cur.copy();
+            @SuppressWarnings("unchecked")
+            DataComponentType<Object> t = (DataComponentType<Object>) equippableType;
+            copy.set(t, neu);
+            return copy;
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            if (!saddleWarned) {
+                saddleWarned = true;
+                System.err.println("[ctrkart] No pude vaciar el aspecto de la silla: " + ex);
+            }
+            return null;
+        }
+    }
+
     private static void hideSaddle(Entity e) {
         if (!(e instanceof LivingEntity horse)) {
             return;
@@ -167,17 +225,40 @@ public final class KartVisuals {
             return;
         }
         ItemStack cur = horse.getItemBySlot(saddleSlot);
-        if (cur.isEmpty() || cur.get(equippableType) == null) {
+        if (cur.isEmpty() || cur == HIDDEN_SADDLES.get(horse.getId())) {
             return; // vacia o ya oculta
         }
+        ItemStack hidden = withoutSaddleAsset(cur);
+        if (hidden == null) {
+            return;
+        }
         REAL_SADDLES.put(horse.getId(), cur);
-        ItemStack copy = cur.copy();
-        copy.remove(equippableType);
-        horse.setItemSlot(saddleSlot, copy);
+        HIDDEN_SADDLES.put(horse.getId(), hidden);
+        horse.setItemSlot(saddleSlot, hidden);
+    }
+
+    /** Si con la silla oculta el kart se queda sin conductor, se desactiva el truco y se devuelve la silla. */
+    private static void guardSaddle(Entity horse) {
+        if (!REAL_SADDLES.containsKey(horse.getId())) {
+            return;
+        }
+        boolean bad = horse.getFirstPassenger() instanceof Player && horse.getControllingPassenger() == null;
+        saddleBadTicks = bad ? saddleBadTicks + 1 : 0;
+        if (saddleBadTicks >= 10) {
+            saddleDisabled = true;
+            System.err.println("[ctrkart] Con la silla oculta el kart se quedo sin conductor: desactivo ocultar la silla.");
+            for (Map.Entry<Integer, ItemStack> en : new HashMap<>(REAL_SADDLES).entrySet()) {
+                Entity h = Minecraft.getInstance().level == null ? null : Minecraft.getInstance().level.getEntity(en.getKey());
+                if (h != null) {
+                    restoreSaddle(h);
+                }
+            }
+        }
     }
 
     /** Si el caballo deja de ser kart, vuelve a tener su silla normal. */
     private static void restoreSaddle(Entity e) {
+        HIDDEN_SADDLES.remove(e.getId());
         ItemStack real = REAL_SADDLES.remove(e.getId());
         if (real != null && saddleSlot != null && e instanceof LivingEntity horse) {
             horse.setItemSlot(saddleSlot, real);

@@ -5,6 +5,8 @@ import com.ctrkart.KartSeat;
 import com.ctrkart.KartState;
 import com.ctrkart.KartTracker;
 import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityDimensions;
 import net.minecraft.world.entity.animal.equine.AbstractHorse; // si no existe: net.minecraft.world.entity.animal.horse.AbstractHorse
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.state.BlockState;
@@ -49,6 +51,27 @@ public abstract class AbstractHorseMixin {
     private void ctrkart$noHoofSteps(BlockPos pos, BlockState state, CallbackInfo ci) {
         if (KartSeat.isKart((AbstractHorse) (Object) this)) {
             ci.cancel();
+        }
+    }
+
+    /**
+     * AbstractHorse suma su propio desplazamiento al punto del jinete cuando el caballo se levanta
+     * ("relincha"). Lo recolocamos aqui, al final, para que el jugador no se vaya hacia atras.
+     */
+    @Inject(method = "getPassengerAttachmentPoint", at = @At("RETURN"), cancellable = true, require = 0)
+    private void ctrkart$seatPointFinal(Entity passenger, EntityDimensions dimensions, float scale,
+                                        CallbackInfoReturnable<Vec3> cir) {
+        Vec3 off = KartSeat.seatOffset((AbstractHorse) (Object) this);
+        if (off != null) {
+            cir.setReturnValue(off);
+        }
+    }
+
+    /** Un kart nunca se pone de manos. */
+    @Inject(method = "isStanding", at = @At("HEAD"), cancellable = true, require = 0)
+    private void ctrkart$neverRear(CallbackInfoReturnable<Boolean> cir) {
+        if (KartSeat.isKart((AbstractHorse) (Object) this)) {
+            cir.setReturnValue(false);
         }
     }
 }
