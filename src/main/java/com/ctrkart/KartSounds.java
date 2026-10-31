@@ -10,6 +10,8 @@ import net.minecraft.sounds.SoundEvent;
  */
 public final class KartSounds {
     public static final SoundEvent ENGINE = event("kart.engine");
+    /** Sonido de Sacred Fire fallado (manejo clasico). */
+    public static final SoundEvent FAIL = event("sacred.fail");
 
     /** Los tres sonidos del Sacred Fire: se intercalan al azar, sin repetir el mismo dos veces seguidas. */
     private static final SoundEvent[] SACRED = {event("sacred.fire.1"), event("sacred.fire.2"), event("sacred.fire.3")};

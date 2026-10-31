@@ -28,7 +28,8 @@ import net.minecraft.world.phys.Vec3;
  * MANEJO CLASICO (ajuste "manejo_clasico", ver KartConfig): el derrape es mas recto y reacciona a hacia donde giras
  * (hacia el lado en que empezaste = curva mas; al lado contrario = casi recto), y el Sacred Fire ya no es
  * automatico: al llenarse la 3a barra hay que pulsar el CLICK IZQUIERDO para soltarlo. Tras acertar uno, la barra
- * vuelve a llenarse y puedes hacer otro en el mismo derrape (maximo 3, contando el primero).
+ * vuelve a llenarse y puedes hacer otro en el mismo derrape (maximo 3, contando el primero). Si con la barra llena
+ * no haces click a tiempo, ese Sacred Fire se pierde, no puedes hacer mas en ese derrape y sale humo negro.
  *
  * ENERGIA (0..100): se obtiene al lograr Sacred Fire (cada vez, se acumula), al caer de altura y al alimentar.
  * Se drena siempre, sin pausas; el Sacred Fire dura mientras queden reservas.
@@ -70,6 +71,8 @@ public final class KartPhysics {
     static final float CLASSIC_CURVE_STEER = 0.50f; // lo que suma/resta girar hacia/contra el lado del derrape
     static final float CLASSIC_CURVE_MIN = 0.05f;   // girando al lado contrario: casi recto
     static final float CLASSIC_CURVE_MAX = 0.95f;   // girando hacia el lado del derrape: curva mas
+    static final int CLASSIC_WINDOW_TICKS = 12;     // tiempo para hacer click tras llenarse la barra (12 = 0,6 s)
+    static final int FAIL_SMOKE_TICKS = 50;         // humo negro tras fallar (50 = 2,5 s)
     // Escape del modelo de kart (bloques, relativo al centro del kart)
     static final double EXHAUST_BACK = 0.72;
     static final double EXHAUST_SIDE = 0.225;
@@ -78,12 +81,17 @@ public final class KartPhysics {
     private static final DustParticleOptions FIRE_RED = new DustParticleOptions(0xFF2A2A, 1.3f);
     private static final DustParticleOptions FIRE_YELLOW = new DustParticleOptions(0xFFD21E, 1.3f);
     private static final DustParticleOptions FIRE_BLUE = new DustParticleOptions(0x2F6BFF, 1.5f);
+    private static final DustParticleOptions SMOKE_WHITE = new DustParticleOptions(0xF4F4F4, 1.0f);
+    private static final DustParticleOptions SMOKE_BLACK = new DustParticleOptions(0x0B0B0B, 1.6f);
 
     /** Lo fija el cliente (KartModClient) para escribir en la barra de accion. */
     public static volatile java.util.function.Consumer<Component> HUD = c -> {};
 
     /** Lo fija el cliente (KartModClient): true mientras se mantiene el click izquierdo. */
     public static volatile java.util.function.BooleanSupplier ATTACK = () -> false;
+
+    /** Lo fija el cliente: devuelve true si hubo pulsaciones del click izquierdo desde la ultima vez (las gasta). */
+    public static volatile java.util.function.BooleanSupplier ATTACK_CLICKS = () -> false;
 
     private KartPhysics() {}
 
@@ -124,6 +132,9 @@ public final class KartPhysics {
         if (s.superTicks > 0) {
             s.superTicks--;
         }
+        if (s.failSmokeTicks > 0) {
+            s.failSmokeTicks--;
+        }
 
         // --- aire / aterrizaje (caida alta) ---
         boolean onGround = horse.onGround();
@@ -158,7 +169,8 @@ public final class KartPhysics {
 
         // --- derrape: la barra se llena sola; cada barra llena sube un nivel ---
         if (s.drifting) {
-            boolean canCharge = onGround && s.pending < MAX_TURBOS && !(classic && s.driftHits >= CLASSIC_MAX_HITS);
+            boolean canCharge = onGround && s.pending < MAX_TURBOS
+                    && !(classic && (s.driftHits >= CLASSIC_MAX_HITS || s.sacredFailed));
             if (!jump || s.speed < DRIFT_MIN_SPEED * 0.6) {
                 endDrift(horse, s);
             } else if (canCharge) {
@@ -169,6 +181,7 @@ public final class KartPhysics {
                     if (s.pending >= MAX_TURBOS) {
                         if (classic) { // 3a barra llena: el Sacred Fire queda LISTO, falta el click izquierdo
                             s.sacredReady = true;
+                            s.sacredWindow = CLASSIC_WINDOW_TICKS;
                             sfx(horse, SoundEvents.EXPERIENCE_ORB_PICKUP, 0.8f, 1.8f);
                         } else {       // 3a barra: SACRED FIRE al instante (solo suena su propio sonido)
                             driftStrike(horse, s);
@@ -178,13 +191,22 @@ public final class KartPhysics {
                     }
                 }
             }
-            // manejo clasico: click izquierdo con el Sacred Fire listo = lo encestas; la barra vuelve a empezar
-            if (classic && s.drifting && s.sacredReady && attackPressed) {
-                driftStrike(horse, s);
-                s.sacredReady = false;
-                s.driftHits++;
-                s.pending = 0;
-                s.charge = 0;
+            // manejo clasico: con el Sacred Fire listo hay una ventana corta para hacer CLICK IZQUIERDO.
+            // Acierto = Sacred Fire y la barra vuelve a empezar. Sin click a tiempo = se pierde (y no hay mas en este derrape).
+            if (classic && s.drifting && s.sacredReady) {
+                boolean clicked = attackPressed || ATTACK_CLICKS.getAsBoolean();
+                if (clicked) {
+                    driftStrike(horse, s);
+                    s.sacredReady = false;
+                    s.driftHits++;
+                    s.pending = 0;
+                    s.charge = 0;
+                } else if (--s.sacredWindow <= 0) {
+                    s.sacredReady = false;
+                    s.sacredFailed = true;
+                    s.failSmokeTicks = FAIL_SMOKE_TICKS;
+                    sfx(horse, KartSounds.FAIL, 1.0f, 1.0f);
+                }
             }
         }
 
@@ -336,6 +358,8 @@ public final class KartPhysics {
         s.pending = 0;
         s.charge = 0;
         s.sacredReady = false;
+        s.sacredWindow = 0;
+        s.sacredFailed = false;
         s.driftHits = 0;
     }
 
@@ -381,6 +405,27 @@ public final class KartPhysics {
         double ox = -Math.sin(rad) * dir; // hacia donde sale el fuego
         double oz = Math.cos(rad) * dir;
 
+        // Humo de los escapes: blanco en reposo / en marcha mientras no haya Sacred Fire; negro si fallaste el Sacred Fire
+        boolean failing = s.failSmokeTicks > 0;
+        if (failing || !s.sacred) {
+            for (int side = -1; side <= 1; side += 2) {
+                Vec3 e = local(horse, s, bodyYaw, EXHAUST_BACK, side * EXHAUST_SIDE, EXHAUST_Y);
+                double jx = (r.nextDouble() - 0.5) * 0.05;
+                double jz = (r.nextDouble() - 0.5) * 0.05;
+                if (failing) {
+                    level.addParticle(SMOKE_BLACK, e.x + jx, e.y, e.z + jz, ox * 0.06, 0.05, oz * 0.06);
+                    level.addParticle(SMOKE_BLACK, e.x - jx, e.y + 0.03, e.z - jz, ox * 0.04, 0.06, oz * 0.04);
+                    if (horse.tickCount % 2 == 0) {
+                        level.addParticle(ParticleTypes.LARGE_SMOKE, e.x, e.y, e.z, ox * 0.04, 0.04, oz * 0.04);
+                    }
+                } else {
+                    level.addParticle(SMOKE_WHITE, e.x + jx, e.y, e.z + jz, ox * 0.03, 0.03, oz * 0.03);
+                    if (horse.tickCount % 6 == 0) {
+                        level.addParticle(ParticleTypes.CLOUD, e.x, e.y, e.z, ox * 0.02, 0.03, oz * 0.02);
+                    }
+                }
+            }
+        }
         if (s.sacred || s.boostTicks > 0) {
             // Colores bien distintos: rojo (nivel 1), amarillo (nivel 2), azul (Sacred Fire)
             ParticleOptions color = s.sacred ? FIRE_BLUE : (s.fireLevel >= 2 ? FIRE_YELLOW : FIRE_RED);
@@ -467,6 +512,8 @@ public final class KartPhysics {
                 sb.append(" §6").append(s.driftHits).append("/").append(CLASSIC_MAX_HITS);
                 if (s.sacredReady) {
                     sb.append(" §b§l¡CLICK IZQUIERDO!§r");
+                } else if (s.sacredFailed) {
+                    sb.append(" §c§l✖ SACRED PERDIDO§r");
                 }
             }
         }

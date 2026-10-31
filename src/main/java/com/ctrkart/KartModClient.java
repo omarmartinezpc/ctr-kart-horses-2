@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
+import org.lwjgl.glfw.GLFW;
 
 public class KartModClient implements ClientModInitializer {
     private static Method overlayMethod;
@@ -20,7 +21,8 @@ public class KartModClient implements ClientModInitializer {
         KartConfig.load();
         KartPhysics.HUD = KartModClient::showOverlay;
         // click izquierdo (para el Sacred Fire manual del manejo clasico). Al abrir un menu el juego suelta las teclas solo.
-        KartPhysics.ATTACK = () -> Minecraft.getInstance().options.keyAttack.isDown();
+        KartPhysics.ATTACK = KartModClient::attackDown;
+        KartPhysics.ATTACK_CLICKS = KartModClient::consumeAttackClicks;
         KartClientCommands.register();
         ClientTickEvents.END_CLIENT_TICK.register(client -> KartVisuals.tick(client));
         ClientPlayNetworking.registerGlobalReceiver(KartSyncPayload.TYPE,
@@ -28,6 +30,49 @@ public class KartModClient implements ClientModInitializer {
         ClientPlayNetworking.registerGlobalReceiver(KartEnergyPayload.TYPE,
                 (payload, context) -> KartTracker.addEnergy(payload.entityId(), payload.amount()));
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> KartTracker.clear());
+    }
+
+    private static long windowHandle;
+
+    /** Click izquierdo mantenido: por la tecla de "atacar" del juego O leyendo el boton del raton directamente (GLFW). */
+    private static boolean attackDown() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.options.keyAttack.isDown()) {
+            return true;
+        }
+        long h = glfwHandle(mc);
+        return h != 0L && GLFW.glfwGetMouseButton(h, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+    }
+
+    /** Pulsaciones del click izquierdo que el juego aun no habia gastado (cubre clicks muy rapidos entre ticks). */
+    private static boolean consumeAttackClicks() {
+        boolean any = false;
+        while (Minecraft.getInstance().options.keyAttack.consumeClick()) {
+            any = true;
+        }
+        return any;
+    }
+
+    /** El numero de la ventana de GLFW: el metodo que lo da se llama distinto segun la version, asi que se busca. */
+    private static long glfwHandle(Minecraft mc) {
+        if (windowHandle != 0L) {
+            return windowHandle;
+        }
+        try {
+            Object w = mc.getWindow();
+            for (Method m : w.getClass().getMethods()) {
+                if (m.getParameterCount() == 0 && m.getReturnType() == long.class) {
+                    long v = (long) m.invoke(w);
+                    if (v != 0L) {
+                        windowHandle = v;
+                        break;
+                    }
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException ignored) {
+            // sin esta via, queda la tecla de atacar del juego
+        }
+        return windowHandle;
     }
 
     /** Escribe en la barra de accion. El nombre del metodo cambio en 26.x, asi que se busca por reflexion. */
