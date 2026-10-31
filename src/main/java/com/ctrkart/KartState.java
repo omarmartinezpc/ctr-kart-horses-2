@@ -6,6 +6,7 @@ public final class KartState {
     public int superTicks;   // Super Motor restante (lo fija el servidor al alimentar)
     public boolean flip;     // modelo girado 180 grados (etiqueta kart_flip)
     public float energy;     // ENERGIA 0..100: se conserva aunque te bajes del kart
+    public float steerAnim;  // direccion que lleva el volante, suavizada (-1 izquierda .. +1 derecha); la usan las ruedas delanteras
     public float wheelie;    // inclinacion del caballito en grados (0 = normal); la anima KartVisuals
     public int sacredEvents; // sube 1 con cada Sacred Fire asestado (el sonido del motor reacciona a esto)
 
@@ -57,6 +58,7 @@ public final class KartState {
         chainBonus = false;
         strikeCount = 0;
         sacredReady = false;
+        steerAnim = 0f;
         driftHits = 0;
         sacredWindow = 0;
         sacredFailed = false;

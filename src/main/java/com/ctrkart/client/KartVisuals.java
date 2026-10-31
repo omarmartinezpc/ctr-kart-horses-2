@@ -55,6 +55,8 @@ public final class KartVisuals {
     /** Grados que gira la rueda por tick por cada bloque/tick de velocidad (sube y baja con la velocidad). */
     private static final double WHEEL_SPIN = 100.0;
     private static final double WHEEL_SPIN_MAX = 120.0;
+    /** Cuanto giran las ruedas delanteras al pulsar A o D (grados). */
+    private static final float STEER_MAX_DEG = 28f;
     /** Inclinacion maxima del caballito (grados). */
     private static final float WHEELIE_MAX = 28f;
     /** Duracion del caballito: 2 s con pocas reservas, 4 s con las reservas llenas (en ticks). */
@@ -252,6 +254,12 @@ public final class KartVisuals {
         }
         st.wheelie = phi; // KartSeat lo usa para subir y echar atras al jugador
 
+        // direccion: las ruedas delanteras miran hacia donde giras (con kart_flip el modelo va al reves)
+        if (!horse.isVehicle()) {
+            st.steerAnim *= 0.6f;
+        }
+        float steerYaw = st.steerAnim * STEER_MAX_DEG * (st.flip ? -1f : 1f);
+
         // el cuerpo gira alrededor del eje trasero; las ruedas delanteras lo acompanan
         double[] bp = KartSeat.pitch(0.0, 0.0, phi);
         place(rig, 0, rig.body, horse, rx, rz, fx, fz, 0.0, bp[1], bp[0], yd, -phi, false);
@@ -261,7 +269,7 @@ public final class KartVisuals {
                 continue;
             }
             double[] p = KartSeat.pitch(W_FWD[i], W_UP[i], phi);
-            place(rig, i + 1, w, horse, rx, rz, fx, fz, W_LAT[i], p[1], p[0], yd, rig.spin - phi, true);
+            place(rig, i + 1, w, horse, rx, rz, fx, fz, W_LAT[i], p[1], p[0], i < 2 ? yd + steerYaw : yd, rig.spin - phi, true);
         }
     }
 

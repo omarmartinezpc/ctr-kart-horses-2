@@ -120,6 +120,7 @@ public final class KartPhysics {
 
         KartClass k = s.kartClass;
         float steer = -rider.xxa;   // +1 = derecha (yaw aumenta al girar a la derecha)
+        s.steerAnim += (steer - s.steerAnim) * 0.4f; // para la animacion de las ruedas delanteras
         float throttle = rider.zza; // +1 = W, -1 = S
         boolean jump = ((LivingEntityAccessor) rider).ctrkart$isJumping();
         boolean jumpPressed = jump && !s.jumpHeld;

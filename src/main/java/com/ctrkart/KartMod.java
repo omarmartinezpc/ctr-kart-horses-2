@@ -168,7 +168,6 @@ public class KartMod implements ModInitializer {
         if (!player.getAbilities().instabuild) {
             stack.shrink(1);
         }
-        horse.playSound(SoundEvents.HORSE_EAT, 1.0f, 1.0f);
         broadcast(horse, cls);
         Integer energy = FOOD_ENERGY.get(item);
         if (energy != null) {

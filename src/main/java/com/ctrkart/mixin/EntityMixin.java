@@ -1,8 +1,6 @@
 package com.ctrkart.mixin;
 
 import com.ctrkart.KartSeat;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.tags.DamageTypeTags;
 import net.minecraft.world.damagesource.DamageSource;
@@ -50,19 +48,29 @@ public abstract class EntityMixin {
         }
     }
 
+    /** Un kart no tiene sonidos de caballo: se cancela TODO sonido que salga de la entidad (los del mod suenan aparte). */
     @Inject(method = "playSound(Lnet/minecraft/sounds/SoundEvent;FF)V", at = @At("HEAD"), cancellable = true, require = 0)
-    private void ctrkart$noHoofSounds(SoundEvent sound, float volume, float pitch, CallbackInfo ci) {
+    private void ctrkart$noHorseSounds(SoundEvent sound, float volume, float pitch, CallbackInfo ci) {
         Entity self = (Entity) (Object) this;
-        if (!(self instanceof AbstractHorse) || !KartSeat.isKart(self)) {
-            return;
-        }
-        Identifier id = BuiltInRegistries.SOUND_EVENT.getKey(sound);
-        if (id == null) {
-            return;
-        }
-        String p = id.getPath();
-        if (p.startsWith("entity.horse.step") || p.equals("entity.horse.gallop") || p.equals("entity.horse.breathe")) {
+        if (self instanceof AbstractHorse && KartSeat.isKart(self)) {
             ci.cancel();
+        }
+    }
+
+    /** Un caballo normal tira al jinete al sumergirse; un kart no. El metodo se llama distinto segun la version. */
+    @Inject(method = "dismountsUnderwater()Z", at = @At("HEAD"), cancellable = true, require = 0)
+    private void ctrkart$keepRiderUnderwater(CallbackInfoReturnable<Boolean> cir) {
+        Entity self = (Entity) (Object) this;
+        if (self instanceof AbstractHorse && KartSeat.isKart(self)) {
+            cir.setReturnValue(false);
+        }
+    }
+
+    @Inject(method = "rideableUnderWater()Z", at = @At("HEAD"), cancellable = true, require = 0)
+    private void ctrkart$rideableUnderwater(CallbackInfoReturnable<Boolean> cir) {
+        Entity self = (Entity) (Object) this;
+        if (self instanceof AbstractHorse && KartSeat.isKart(self)) {
+            cir.setReturnValue(true);
         }
     }
 

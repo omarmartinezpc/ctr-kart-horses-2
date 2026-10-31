@@ -20,6 +20,8 @@ public final class KartInvincible {
     private static boolean searched;
     private static Method setter;
     private static Field field;
+    private static boolean silentSearched;
+    private static Method silentSetter;
 
     private KartInvincible() {}
 
@@ -46,6 +48,7 @@ public final class KartInvincible {
             Method reg = Class.forName("net.fabricmc.fabric.api.event.Event").getMethod("register", Object.class);
             reg.invoke(event, proxy);
             System.out.println("[ctrkart] Invencibilidad: evento ALLOW_DAMAGE registrado");
+            logWaterCandidates();
         } catch (ReflectiveOperationException | RuntimeException ex) {
             System.err.println("[ctrkart] Invencibilidad: no pude usar ALLOW_DAMAGE (" + ex + "); quedan las otras vias");
         }
@@ -62,6 +65,7 @@ public final class KartInvincible {
     /** Se llama cada 10 ticks por cada kart (on = true) y una vez al quitarle la etiqueta (on = false). */
     public static void apply(AbstractHorse horse, boolean on) {
         setInvulnerable(horse, on);
+        setSilent(horse, on); // un kart no hace ruidos de caballo
         if (on && horse.getHealth() < horse.getMaxHealth()) {
             horse.setHealth(horse.getMaxHealth());
         }
@@ -103,6 +107,49 @@ public final class KartInvincible {
             }
         } catch (ReflectiveOperationException | RuntimeException ex) {
             // queda la via del evento y la curacion
+        }
+    }
+
+    /** Marca al caballo como "silencioso" (por reflexion: el nombre del metodo puede cambiar entre versiones). */
+    private static void setSilent(Entity e, boolean on) {
+        if (!silentSearched) {
+            silentSearched = true;
+            try {
+                for (Method m : Entity.class.getDeclaredMethods()) {
+                    if (m.getName().equals("setSilent") && m.getParameterCount() == 1
+                            && m.getParameterTypes()[0] == boolean.class) {
+                        m.setAccessible(true);
+                        silentSetter = m;
+                    }
+                }
+            } catch (RuntimeException ex) {
+                System.err.println("[ctrkart] Silencio: error buscando setSilent: " + ex);
+            }
+            System.out.println("[ctrkart] Silencio: setSilent=" + silentSetter);
+        }
+        if (silentSetter != null) {
+            try {
+                silentSetter.invoke(e, on);
+            } catch (ReflectiveOperationException | RuntimeException ex) {
+                // queda el filtro de sonidos del mixin
+            }
+        }
+    }
+
+    /** Solo para el log: que metodos de Entity tienen que ver con desmontar bajo el agua en esta version. */
+    private static void logWaterCandidates() {
+        try {
+            StringBuilder sb = new StringBuilder();
+            for (Method m : Entity.class.getDeclaredMethods()) {
+                String n = m.getName().toLowerCase();
+                if (m.getParameterCount() == 0 && m.getReturnType() == boolean.class
+                        && (n.contains("underwater") || n.contains("dismount") || n.contains("rideable"))) {
+                    sb.append(m.getName()).append(' ');
+                }
+            }
+            System.out.println("[ctrkart] Agua: metodos candidatos en Entity = " + sb);
+        } catch (RuntimeException ex) {
+            // solo es informativo
         }
     }
 }
