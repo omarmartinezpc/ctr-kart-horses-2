@@ -3,6 +3,9 @@ package com.ctrkart.mixin;
 import com.ctrkart.KartSeat;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.tags.DamageTypeTags;
+import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.sounds.SoundEvent;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityDimensions;
@@ -60,6 +63,30 @@ public abstract class EntityMixin {
         String p = id.getPath();
         if (p.startsWith("entity.horse.step") || p.equals("entity.horse.gallop") || p.equals("entity.horse.breathe")) {
             ci.cancel();
+        }
+    }
+
+    /**
+     * Los karts son invencibles (en cualquier modo de manejo): se rechaza todo dano, salvo el que ignora la
+     * invulnerabilidad (vacio, /kill), para que siga pudiendo quitarse. Hay dos versiones de la firma segun la
+     * version del juego; la que no exista se ignora.
+     */
+    @Inject(method = "isInvulnerableTo(Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/damagesource/DamageSource;)Z",
+            at = @At("HEAD"), cancellable = true, require = 0)
+    private void ctrkart$invincibleLevel(ServerLevel level, DamageSource source, CallbackInfoReturnable<Boolean> cir) {
+        ctrkart$blockDamage(source, cir);
+    }
+
+    @Inject(method = "isInvulnerableTo(Lnet/minecraft/world/damagesource/DamageSource;)Z",
+            at = @At("HEAD"), cancellable = true, require = 0)
+    private void ctrkart$invincibleOld(DamageSource source, CallbackInfoReturnable<Boolean> cir) {
+        ctrkart$blockDamage(source, cir);
+    }
+
+    private void ctrkart$blockDamage(DamageSource source, CallbackInfoReturnable<Boolean> cir) {
+        Entity self = (Entity) (Object) this;
+        if (self instanceof AbstractHorse && !source.is(DamageTypeTags.BYPASSES_INVULNERABILITY) && KartSeat.isKart(self)) {
+            cir.setReturnValue(true);
         }
     }
 }
