@@ -19,11 +19,8 @@ public class KartModClient implements ClientModInitializer {
     public void onInitializeClient() {
         KartConfig.load();
         KartPhysics.HUD = KartModClient::showOverlay;
-        // click izquierdo (para el Sacred Fire manual del manejo clasico); solo cuenta si no hay un menu abierto
-        KartPhysics.ATTACK = () -> {
-            Minecraft mc = Minecraft.getInstance();
-            return mc.screen == null && mc.options.keyAttack.isDown();
-        };
+        // click izquierdo (para el Sacred Fire manual del manejo clasico). Al abrir un menu el juego suelta las teclas solo.
+        KartPhysics.ATTACK = () -> Minecraft.getInstance().options.keyAttack.isDown();
         KartClientCommands.register();
         ClientTickEvents.END_CLIENT_TICK.register(client -> KartVisuals.tick(client));
         ClientPlayNetworking.registerGlobalReceiver(KartSyncPayload.TYPE,
