@@ -102,9 +102,15 @@ public class KartMod implements ModInitializer {
                 }
             }
 
+            // Los karts son invencibles (en cualquier modo de manejo); se vuelve a asegurar por si algo lo cambia
+            if (cls >= 0 && !horse.isInvulnerable()) {
+                horse.setInvulnerable(true);
+            }
+
             int prev = LAST_CLASS.getOrDefault(id, -1);
             if (prev != cls) {
                 setScale(horse, cls >= 0 ? KART_SCALE : 1.0);
+                horse.setInvulnerable(cls >= 0); // al quitar la etiqueta kart vuelve a poder recibir dano
                 if (cls < 0) {
                     LAST_CLASS.remove(id);
                     SUPER.remove(id);
