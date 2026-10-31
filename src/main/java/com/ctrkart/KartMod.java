@@ -80,6 +80,7 @@ public class KartMod implements ModInitializer {
         });
 
         ServerTickEvents.END_LEVEL_TICK.register(KartMod::tickLevel);
+        KartInvincible.register();
     }
 
     /** Cada 10 ticks: detecta /tag add|remove kart y descuenta el Super Motor. */
@@ -102,9 +103,16 @@ public class KartMod implements ModInitializer {
                 }
             }
 
+            if (cls >= 0) {
+                KartInvincible.apply(horse, true); // los karts son invencibles
+            }
+
             int prev = LAST_CLASS.getOrDefault(id, -1);
             if (prev != cls) {
                 setScale(horse, cls >= 0 ? KART_SCALE : 1.0);
+                if (cls < 0) {
+                    KartInvincible.apply(horse, false); // al quitar la etiqueta vuelve a poder recibir dano
+                }
                 if (cls < 0) {
                     LAST_CLASS.remove(id);
                     SUPER.remove(id);
