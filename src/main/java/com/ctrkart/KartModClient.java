@@ -9,7 +9,6 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
-import org.lwjgl.glfw.GLFW;
 
 public class KartModClient implements ClientModInitializer {
     private static Method overlayMethod;
@@ -40,8 +39,36 @@ public class KartModClient implements ClientModInitializer {
         if (mc.options.keyAttack.isDown()) {
             return true;
         }
+        return glfwLeftPressed(mc);
+    }
+
+    private static Method glfwGetMouseButton;
+    private static boolean glfwSearched;
+
+    /** Lee el boton izquierdo del raton con GLFW por reflexion (la libreria no esta disponible al compilar, pero si al jugar). */
+    private static boolean glfwLeftPressed(Minecraft mc) {
         long h = glfwHandle(mc);
-        return h != 0L && GLFW.glfwGetMouseButton(h, GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+        if (h == 0L) {
+            return false;
+        }
+        if (!glfwSearched) {
+            glfwSearched = true;
+            try {
+                glfwGetMouseButton = Class.forName("org.lwjgl.glfw.GLFW")
+                        .getMethod("glfwGetMouseButton", long.class, int.class);
+            } catch (ReflectiveOperationException ignored) {
+                // sin esta via, queda la tecla de atacar del juego
+            }
+        }
+        if (glfwGetMouseButton == null) {
+            return false;
+        }
+        try {
+            Object r = glfwGetMouseButton.invoke(null, h, 0); // 0 = boton izquierdo; 1 = pulsado
+            return r instanceof Integer i && i == 1;
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            return false;
+        }
     }
 
     /** Pulsaciones del click izquierdo que el juego aun no habia gastado (cubre clicks muy rapidos entre ticks). */
