@@ -1,6 +1,7 @@
 package com.ctrkart;
 
 import java.lang.reflect.Method;
+import com.ctrkart.client.KartClientCommands;
 import com.ctrkart.client.KartVisuals;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -16,7 +17,14 @@ public class KartModClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
+        KartConfig.load();
         KartPhysics.HUD = KartModClient::showOverlay;
+        // click izquierdo (para el Sacred Fire manual del manejo clasico); solo cuenta si no hay un menu abierto
+        KartPhysics.ATTACK = () -> {
+            Minecraft mc = Minecraft.getInstance();
+            return mc.screen == null && mc.options.keyAttack.isDown();
+        };
+        KartClientCommands.register();
         ClientTickEvents.END_CLIENT_TICK.register(client -> KartVisuals.tick(client));
         ClientPlayNetworking.registerGlobalReceiver(KartSyncPayload.TYPE,
                 (payload, context) -> KartTracker.apply(payload)); // Fabric ya lo ejecuta en el hilo principal

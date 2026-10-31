@@ -25,6 +25,11 @@ import net.minecraft.world.phys.Vec3;
  *   1a barra llena = nivel 1 (rojo), 2a = nivel 2 (amarillo), 3a = SACRED FIRE (azul) al instante.
  *   Al soltar ESPACIO con nivel 1 o 2 se cobra un turbo de ese nivel.
  *
+ * MANEJO CLASICO (ajuste "manejo_clasico", ver KartConfig): el derrape es mas recto y reacciona a hacia donde giras
+ * (hacia el lado en que empezaste = curva mas; al lado contrario = casi recto), y el Sacred Fire ya no es
+ * automatico: al llenarse la 3a barra hay que pulsar el CLICK IZQUIERDO para soltarlo. Tras acertar uno, la barra
+ * vuelve a llenarse y puedes hacer otro en el mismo derrape (maximo 3, contando el primero).
+ *
  * ENERGIA (0..100): se obtiene al lograr Sacred Fire (cada vez, se acumula), al caer de altura y al alimentar.
  * Se drena siempre, sin pausas; el Sacred Fire dura mientras queden reservas.
  * Se recuerdan los ultimos 3 Sacred Fire hechos con ESPACIO: si los 3 fueron seguidos (cada uno con el
@@ -59,6 +64,12 @@ public final class KartPhysics {
     static final double FALL_FULL = 24.0;
     static final float FALL_ENERGY_MIN = 10f;
     static final float FALL_ENERGY_MAX = 100f;
+    // Manejo clasico
+    static final int CLASSIC_MAX_HITS = 3;        // Sacred Fire maximos por derrape (contando el primero)
+    static final float CLASSIC_CURVE_BASE = 0.45f;  // curvatura del derrape sin tocar A/D (el normal es 0.95)
+    static final float CLASSIC_CURVE_STEER = 0.50f; // lo que suma/resta girar hacia/contra el lado del derrape
+    static final float CLASSIC_CURVE_MIN = 0.05f;   // girando al lado contrario: casi recto
+    static final float CLASSIC_CURVE_MAX = 0.95f;   // girando hacia el lado del derrape: curva mas
     // Escape del modelo de kart (bloques, relativo al centro del kart)
     static final double EXHAUST_BACK = 0.72;
     static final double EXHAUST_SIDE = 0.225;
@@ -70,6 +81,9 @@ public final class KartPhysics {
 
     /** Lo fija el cliente (KartModClient) para escribir en la barra de accion. */
     public static volatile java.util.function.Consumer<Component> HUD = c -> {};
+
+    /** Lo fija el cliente (KartModClient): true mientras se mantiene el click izquierdo. */
+    public static volatile java.util.function.BooleanSupplier ATTACK = () -> false;
 
     private KartPhysics() {}
 
@@ -102,6 +116,10 @@ public final class KartPhysics {
         boolean jump = ((LivingEntityAccessor) rider).ctrkart$isJumping();
         boolean jumpPressed = jump && !s.jumpHeld;
         s.jumpHeld = jump;
+        boolean classic = KartConfig.classicHandling;
+        boolean attack = ATTACK.getAsBoolean();
+        boolean attackPressed = attack && !s.attackHeld; // pulsacion nueva del click izquierdo
+        s.attackHeld = attack;
 
         if (s.superTicks > 0) {
             s.superTicks--;
@@ -140,32 +158,53 @@ public final class KartPhysics {
 
         // --- derrape: la barra se llena sola; cada barra llena sube un nivel ---
         if (s.drifting) {
+            boolean canCharge = onGround && s.pending < MAX_TURBOS && !(classic && s.driftHits >= CLASSIC_MAX_HITS);
             if (!jump || s.speed < DRIFT_MIN_SPEED * 0.6) {
                 endDrift(horse, s);
-            } else if (onGround && s.pending < MAX_TURBOS) {
+            } else if (canCharge) {
                 s.charge++;
                 if (s.charge >= TIER_TICKS) {
                     s.charge = 0;
                     s.pending++;
-                    if (s.pending >= MAX_TURBOS) { // 3a barra: SACRED FIRE al instante (solo suena su propio sonido)
-                        driftStrike(horse, s);
+                    if (s.pending >= MAX_TURBOS) {
+                        if (classic) { // 3a barra llena: el Sacred Fire queda LISTO, falta el click izquierdo
+                            s.sacredReady = true;
+                            sfx(horse, SoundEvents.EXPERIENCE_ORB_PICKUP, 0.8f, 1.8f);
+                        } else {       // 3a barra: SACRED FIRE al instante (solo suena su propio sonido)
+                            driftStrike(horse, s);
+                        }
                     } else {
                         sfx(horse, SoundEvents.EXPERIENCE_ORB_PICKUP, 0.5f, 0.8f + 0.25f * s.pending);
                     }
                 }
+            }
+            // manejo clasico: click izquierdo con el Sacred Fire listo = lo encestas; la barra vuelve a empezar
+            if (classic && s.drifting && s.sacredReady && attackPressed) {
+                driftStrike(horse, s);
+                s.sacredReady = false;
+                s.driftHits++;
+                s.pending = 0;
+                s.charge = 0;
             }
         }
 
         // --- direccion ---
         float speedFactor = (float) Mth.clamp(Math.abs(s.speed) / 0.12, 0.0, 1.0);
         float rate;
-        if (s.drifting) {
+        float curve = CLASSIC_CURVE_MAX; // solo manejo clasico: cuanto curva el derrape (1 = lo normal)
+        if (s.drifting && classic) {
+            // girar hacia el lado en que empezaste el derrape curva mas; hacia el otro lado lo deja casi recto
+            float same = steer * s.driftDir;
+            curve = Mth.clamp(CLASSIC_CURVE_BASE + CLASSIC_CURVE_STEER * same, CLASSIC_CURVE_MIN, CLASSIC_CURVE_MAX);
+            rate = k.turn * s.driftDir * curve * speedFactor;
+        } else if (s.drifting) {
             rate = k.turn * (s.driftDir * 0.95f + steer * 0.5f) * speedFactor;
         } else {
             rate = k.turn * steer * speedFactor * (s.speed < 0 ? -1f : 1f);
         }
         s.moveYaw += rate;
-        float target = s.drifting ? s.driftDir * DRIFT_ANGLE : 0f;
+        float angle = classic ? DRIFT_ANGLE * (0.55f + 0.45f * curve / CLASSIC_CURVE_MAX) : DRIFT_ANGLE; // mas recto = menos cruzado
+        float target = s.drifting ? s.driftDir * angle : 0f;
         s.bodyOffset += (target - s.bodyOffset) * 0.35f;
 
         // --- velocidad: manda siempre la velocidad MAS ALTA entre todas las fuentes activas ---
@@ -285,8 +324,9 @@ public final class KartPhysics {
 
     /** Al soltar el derrape: con 1 o 2 barras se cobra un turbo de ese nivel (la 3a barra ya fue Sacred Fire). */
     private static void endDrift(AbstractHorse horse, KartState s) {
-        if (s.pending > 0 && s.pending < MAX_TURBOS) {
-            int level = s.pending;
+        // Manejo clasico: la 3a barra llena sin haber hecho click se cobra como turbo amarillo (nivel 2)
+        int level = s.pending >= MAX_TURBOS ? (KartConfig.classicHandling ? 2 : 0) : s.pending;
+        if (level > 0) {
             s.fireLevel = s.boostTicks > 0 ? Math.max(s.fireLevel, level) : level;
             s.boostTicks = Math.min(BOOST_CAP, s.boostTicks + TURBO_TICKS_PER_LEVEL * level);
             sfx(horse, SoundEvents.FIREWORK_ROCKET_LAUNCH, 0.8f, 1.0f);
@@ -295,6 +335,8 @@ public final class KartPhysics {
         s.driftDir = 0;
         s.pending = 0;
         s.charge = 0;
+        s.sacredReady = false;
+        s.driftHits = 0;
     }
 
     /** Punto del mundo a "back" bloques hacia atras y "side" a la derecha del kart (con kart_flip, hacia delante). */
@@ -366,6 +408,10 @@ public final class KartPhysics {
                 }
             }
         }
+        if (s.sacredReady) { // aviso visual: Sacred Fire listo, falta el click
+            Vec3 e = local(horse, s, bodyYaw, EXHAUST_BACK, 0.0, EXHAUST_Y);
+            level.addParticle(ParticleTypes.SOUL_FIRE_FLAME, e.x, e.y, e.z, 0, 0.04, 0);
+        }
         if (s.superTicks > 0 && horse.tickCount % 2 == 0) {
             level.addParticle(ParticleTypes.ELECTRIC_SPARK, horse.getX() + (r.nextDouble() - 0.5),
                     horse.getY() + 0.3 + r.nextDouble() * 0.5, horse.getZ() + (r.nextDouble() - 0.5), 0, 0, 0);
@@ -417,6 +463,12 @@ public final class KartPhysics {
                     .append(s.pending >= 1 ? "§c▮" : "§8▯")
                     .append(s.pending >= 2 ? "§e▮" : "§8▯")
                     .append(s.pending >= 3 ? "§9▮" : "§8▯");
+            if (KartConfig.classicHandling) {
+                sb.append(" §6").append(s.driftHits).append("/").append(CLASSIC_MAX_HITS);
+                if (s.sacredReady) {
+                    sb.append(" §b§l¡CLICK IZQUIERDO!§r");
+                }
+            }
         }
         HUD.accept(Component.literal(sb.toString()));
     }
