@@ -31,7 +31,7 @@ import net.minecraft.world.phys.Vec3;
  * vuelve a llenarse y puedes hacer otro en el mismo derrape (maximo 3, contando el primero). Si con la barra llena
  * no haces click a tiempo, ese Sacred Fire se pierde, no puedes hacer mas en ese derrape y sale humo negro.
  *
- * ENERGIA (0..100): se obtiene al lograr Sacred Fire (cada vez, se acumula), al caer de altura y al alimentar.
+ * ENERGIA (0..200; de 101% a 200% se gasta 50% mas rapido): se obtiene al lograr Sacred Fire (cada vez, se acumula), al caer de altura y al alimentar.
  * Se drena siempre, sin pausas; el Sacred Fire dura mientras queden reservas.
  * Se recuerdan los ultimos 3 Sacred Fire hechos con ESPACIO: si los 3 fueron seguidos (cada uno con el
  * anterior aun activo), hay un poco mas de velocidad hasta que se acaben las reservas.
@@ -57,8 +57,10 @@ public final class KartPhysics {
     static final double SACRED_CHAIN_MULT = 1.62; // 3 Sacred Fire de derrape seguidos: un poco mas, mientras duren las reservas
     static final double SUPER_MULT = 1.30;     // Super Motor
     // Energia
-    static final float ENERGY_MAX = 100f;
+    static final float ENERGY_MAX = 200f;      // tope de las reservas (200%)
+    static final float ENERGY_NORMAL = 100f;   // hasta aqui se gastan a ritmo normal; de 101% a 200% se gastan 50% mas rapido
     static final float ENERGY_DRAIN = 0.5f;    // por tick mientras alarga el Sacred Fire (100 = 10 s)
+    static final float ENERGY_DRAIN_OVER = 0.75f; // por tick por encima del 100%
     static final float SACRED_ENERGY = 25f;    // energia al asestar un Sacred Fire
     // Caida alta: de FALL_MIN a FALL_FULL bloques de caida, la energia va de FALL_ENERGY_MIN a FALL_ENERGY_MAX
     static final double FALL_MIN = 3.0;
@@ -294,7 +296,7 @@ public final class KartPhysics {
         }
         // Las reservas se drenan SIEMPRE, sin pausas; el Sacred Fire dura mientras queden reservas
         if (s.energy > 0) {
-            s.energy = Math.max(0f, s.energy - ENERGY_DRAIN);
+            s.energy = Math.max(0f, s.energy - (s.energy > ENERGY_NORMAL ? ENERGY_DRAIN_OVER : ENERGY_DRAIN));
         }
         if (s.sacred && s.energy <= 0) {
             s.sacred = false;
@@ -347,8 +349,8 @@ public final class KartPhysics {
 
     /** Al soltar el derrape: con 1 o 2 barras se cobra un turbo de ese nivel (la 3a barra ya fue Sacred Fire). */
     private static void endDrift(AbstractHorse horse, KartState s) {
-        // Manejo clasico: la 3a barra llena sin haber hecho click se cobra como turbo amarillo (nivel 2)
-        int level = s.pending >= MAX_TURBOS ? (KartConfig.classicHandling ? 2 : 0) : s.pending;
+        // La 3a barra llena sin Sacred Fire (en manejo clasico: sin click a tiempo) NO da ninguna recompensa
+        int level = s.pending >= MAX_TURBOS ? 0 : s.pending;
         if (level > 0) {
             s.fireLevel = s.boostTicks > 0 ? Math.max(s.fireLevel, level) : level;
             s.boostTicks = Math.min(BOOST_CAP, s.boostTicks + TURBO_TICKS_PER_LEVEL * level);
@@ -477,18 +479,26 @@ public final class KartPhysics {
             sb.append(s.fireLevel >= 3 ? "§b" : s.fireLevel == 2 ? "§e" : "§c").append("Turbo§r ");
         }
 
+        // Barra: la primera barra (0-100%) en azul claro; de 101% a 200% se pinta encima, en un azul mas oscuro
         int total = 16;
-        int filled = Math.round(s.energy / ENERGY_MAX * total);
-        sb.append("§7Energia ").append(s.sacred ? "§9" : "§b");
+        int filled = Math.min(total, Math.round(s.energy / ENERGY_NORMAL * total));
+        int over = s.energy > ENERGY_NORMAL ? Math.round((s.energy - ENERGY_NORMAL) / ENERGY_NORMAL * total) : 0;
+        String c1 = s.sacred ? "§9" : "§b";
+        String c2 = s.sacred ? "§1" : "§9";
+        sb.append("§7Energia ");
+        String cur = "";
         for (int i = 0; i < total; i++) {
-            if (i == filled) {
-                sb.append("§8");
+            String col = i < filled ? (i < over ? c2 : c1) : "§8";
+            if (!col.equals(cur)) {
+                sb.append(col);
+                cur = col;
             }
             sb.append(i < filled ? "█" : "░");
         }
         sb.append(String.format(Locale.ROOT, " §f%d%%", Math.round(s.energy)));
         if (s.sacred) {
-            float secs = s.energy / ENERGY_DRAIN / 20f;
+            float secs = (Math.min(s.energy, ENERGY_NORMAL) / ENERGY_DRAIN
+                    + Math.max(0f, s.energy - ENERGY_NORMAL) / ENERGY_DRAIN_OVER) / 20f;
             sb.append(String.format(Locale.ROOT, " §9(%.1fs)", secs));
         }
         if (s.superTicks > 0) {

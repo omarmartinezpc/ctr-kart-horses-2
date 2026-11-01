@@ -11,14 +11,17 @@ import net.fabricmc.loader.api.FabricLoader;
 /**
  * Configuracion del mod. Se guarda en  .minecraft/config/ctrkart.properties
  *
- *   manejo_clasico = true / false
+ *   manejo_clasico = true / false   (por defecto: true)
  *
  * Tambien se cambia dentro del juego con el comando  /ctrkart manejoclasico  (alterna)  o
  * /ctrkart manejoclasico true|false.
  */
 public final class KartConfig {
+    /** Version del archivo de config. Si el archivo es mas viejo, se aplican los valores por defecto nuevos. */
+    private static final int CONFIG_VERSION = 2;
+
     /** MANEJO CLASICO: derrape mas recto que reacciona a hacia donde giras, y Sacred Fire manual con el click izquierdo. */
-    public static volatile boolean classicHandling = false;
+    public static volatile boolean classicHandling = true;
 
     private KartConfig() {}
 
@@ -35,7 +38,18 @@ public final class KartConfig {
         Properties p = new Properties();
         try (InputStream in = Files.newInputStream(f)) {
             p.load(in);
-            classicHandling = Boolean.parseBoolean(p.getProperty("manejo_clasico", "false").trim());
+            int version = 1;
+            try {
+                version = Integer.parseInt(p.getProperty("version", "1").trim());
+            } catch (NumberFormatException ignored) {
+                // archivo sin version: se trata como el antiguo
+            }
+            if (version < CONFIG_VERSION) {
+                classicHandling = true; // el manejo clasico pasa a ser el modo por defecto
+                save();
+            } else {
+                classicHandling = Boolean.parseBoolean(p.getProperty("manejo_clasico", "true").trim());
+            }
         } catch (IOException ex) {
             System.err.println("[ctrkart] No pude leer " + f + ": " + ex);
         }
@@ -44,6 +58,7 @@ public final class KartConfig {
     public static void save() {
         Path f = file();
         Properties p = new Properties();
+        p.setProperty("version", Integer.toString(CONFIG_VERSION));
         p.setProperty("manejo_clasico", Boolean.toString(classicHandling));
         try {
             Files.createDirectories(f.getParent());
