@@ -12,6 +12,7 @@ import net.fabricmc.loader.api.FabricLoader;
  * Configuracion del mod. Se guarda en  .minecraft/config/ctrkart.properties
  *
  *   manejo_clasico = true / false   (por defecto: true)
+ *   camara_ctr     = true / false   (por defecto: false) camara fija trasera estilo CTR Nitro-Fueled
  *
  * Tambien se cambia dentro del juego con el comando  /ctrkart manejoclasico  (alterna)  o
  * /ctrkart manejoclasico true|false.
@@ -22,6 +23,9 @@ public final class KartConfig {
 
     /** MANEJO CLASICO: derrape mas recto que reacciona a hacia donde giras, y Sacred Fire manual con el click izquierdo. */
     public static volatile boolean classicHandling = true;
+
+    /** CAMARA CTR: tercera persona fija detras del kart, que sigue su trayectoria. */
+    public static volatile boolean ctrCamera = false;
 
     private KartConfig() {}
 
@@ -44,6 +48,7 @@ public final class KartConfig {
             } catch (NumberFormatException ignored) {
                 // archivo sin version: se trata como el antiguo
             }
+            ctrCamera = Boolean.parseBoolean(p.getProperty("camara_ctr", "false").trim());
             if (version < CONFIG_VERSION) {
                 classicHandling = true; // el manejo clasico pasa a ser el modo por defecto
                 save();
@@ -60,6 +65,7 @@ public final class KartConfig {
         Properties p = new Properties();
         p.setProperty("version", Integer.toString(CONFIG_VERSION));
         p.setProperty("manejo_clasico", Boolean.toString(classicHandling));
+        p.setProperty("camara_ctr", Boolean.toString(ctrCamera));
         try {
             Files.createDirectories(f.getParent());
             try (OutputStream out = Files.newOutputStream(f)) {

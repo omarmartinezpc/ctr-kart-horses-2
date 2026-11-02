@@ -31,7 +31,7 @@ import net.minecraft.world.phys.Vec3;
  * vuelve a llenarse y puedes hacer otro en el mismo derrape (maximo 3, contando el primero). Si con la barra llena
  * no haces click a tiempo, ese Sacred Fire se pierde, no puedes hacer mas en ese derrape y sale humo negro.
  *
- * ENERGIA (0..200; de 101% a 200% se gasta 50% mas rapido): se obtiene al lograr Sacred Fire (cada vez, se acumula), al caer de altura y al alimentar.
+ * ENERGIA (0..200; de 101% a 200% se gasta 25% mas rapido): se obtiene al lograr Sacred Fire (cada vez, se acumula), al caer de altura y al alimentar.
  * Se drena siempre, sin pausas; el Sacred Fire dura mientras queden reservas.
  * Se recuerdan los ultimos 3 Sacred Fire hechos con ESPACIO: si los 3 fueron seguidos (cada uno con el
  * anterior aun activo), hay un poco mas de velocidad hasta que se acaben las reservas.
@@ -58,9 +58,9 @@ public final class KartPhysics {
     static final double SUPER_MULT = 1.30;     // Super Motor
     // Energia
     static final float ENERGY_MAX = 200f;      // tope de las reservas (200%)
-    static final float ENERGY_NORMAL = 100f;   // hasta aqui se gastan a ritmo normal; de 101% a 200% se gastan 50% mas rapido
+    static final float ENERGY_NORMAL = 100f;   // hasta aqui se gastan a ritmo normal; de 101% a 200% se gastan 25% mas rapido
     static final float ENERGY_DRAIN = 0.5f;    // por tick mientras alarga el Sacred Fire (100 = 10 s)
-    static final float ENERGY_DRAIN_OVER = 0.75f; // por tick por encima del 100%
+    static final float ENERGY_DRAIN_OVER = 0.625f; // por tick por encima del 100% (25% mas rapido que 0.5)
     static final float SACRED_ENERGY = 25f;    // energia al asestar un Sacred Fire
     // Caida alta: de FALL_MIN a FALL_FULL bloques de caida, la energia va de FALL_ENERGY_MIN a FALL_ENERGY_MAX
     static final double FALL_MIN = 3.0;

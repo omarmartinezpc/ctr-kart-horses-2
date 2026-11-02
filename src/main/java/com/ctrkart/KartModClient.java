@@ -1,6 +1,7 @@
 package com.ctrkart;
 
 import java.lang.reflect.Method;
+import com.ctrkart.client.KartCamera;
 import com.ctrkart.client.KartClientCommands;
 import com.ctrkart.client.KartVisuals;
 import net.fabricmc.api.ClientModInitializer;
@@ -23,7 +24,10 @@ public class KartModClient implements ClientModInitializer {
         KartPhysics.ATTACK = KartModClient::attackDown;
         KartPhysics.ATTACK_CLICKS = KartModClient::consumeAttackClicks;
         KartClientCommands.register();
-        ClientTickEvents.END_CLIENT_TICK.register(client -> KartVisuals.tick(client));
+        ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            KartVisuals.tick(client);
+            KartCamera.tick(client);
+        });
         ClientPlayNetworking.registerGlobalReceiver(KartSyncPayload.TYPE,
                 (payload, context) -> KartTracker.apply(payload)); // Fabric ya lo ejecuta en el hilo principal
         ClientPlayNetworking.registerGlobalReceiver(KartEnergyPayload.TYPE,
