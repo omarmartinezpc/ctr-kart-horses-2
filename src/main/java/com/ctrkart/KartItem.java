@@ -44,7 +44,7 @@ public final class KartItem {
     }
 
     public static void register() {
-        if (!registerCreativeEntry()) {
+        if (!registerCreativeEntry(CreativeModeTabs.SPAWN_EGGS, KartItem::stack, "Kart")) {
             System.err.println("[ctrkart] No pude anadir el objeto Kart a la pestana de creativo. Alternativa: "
                     + "/give @s stick[item_model=\"ctrkart:kart_spawn\",custom_name='\"Kart\"']");
         }
@@ -55,7 +55,7 @@ public final class KartItem {
      * Anade el objeto a la pestana de huevos de aparicion. Fabric API cambio el nombre de este evento
      * (ItemGroupEvents -> CreativeModeTabEvents), asi que se busca por reflexion con los dos nombres.
      */
-    private static boolean registerCreativeEntry() {
+    static boolean registerCreativeEntry(Object tabKey, java.util.function.Supplier<ItemStack> stackSupplier, String label) {
         String[] candidates = {
             "net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents",
             "net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents"
@@ -81,24 +81,24 @@ public final class KartItem {
                 if (factory == null || listener == null) {
                     continue;
                 }
-                Object event = factory.invoke(null, CreativeModeTabs.SPAWN_EGGS);
+                Object event = factory.invoke(null, tabKey);
                 Object proxy = Proxy.newProxyInstance(listener.getClassLoader(), new Class<?>[] {listener}, (self, m, args) -> {
                     switch (m.getName()) {
                         case "toString":
-                            return "ctrkart-creative-entry";
+                            return "ctrkart-creative-entry-" + label;
                         case "hashCode":
                             return System.identityHashCode(self);
                         case "equals":
                             return args != null && args.length == 1 && self == args[0];
                         default:
                             if (args != null && args.length == 1 && args[0] != null) {
-                                addToTab(args[0]);
+                                addToTab(args[0], stackSupplier.get());
                             }
                             return null;
                     }
                 });
                 Class.forName("net.fabricmc.fabric.api.event.Event").getMethod("register", Object.class).invoke(event, proxy);
-                System.out.println("[ctrkart] Objeto Kart anadido al creativo (" + className + ")");
+                System.out.println("[ctrkart] " + label + " anadido al creativo (" + className + ")");
                 return true;
             } catch (ReflectiveOperationException | RuntimeException ex) {
                 System.err.println("[ctrkart] Creativo: " + className + " no sirvio: " + ex);
@@ -108,12 +108,12 @@ public final class KartItem {
     }
 
     /** "output" es el objeto de Fabric/Minecraft que recibe los objetos de la pestana; tiene un metodo accept(ItemStack). */
-    private static void addToTab(Object output) {
+    private static void addToTab(Object output, ItemStack stack) {
         try {
             for (Method m : output.getClass().getMethods()) {
                 if (m.getName().equals("accept") && m.getParameterCount() == 1 && m.getParameterTypes()[0] == ItemStack.class) {
                     m.setAccessible(true);
-                    m.invoke(output, stack());
+                    m.invoke(output, stack);
                     return;
                 }
             }

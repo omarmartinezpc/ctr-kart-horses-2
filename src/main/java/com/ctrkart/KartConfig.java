@@ -13,6 +13,7 @@ import net.fabricmc.loader.api.FabricLoader;
  *
  *   manejo_clasico = true / false   (por defecto: true)
  *   camara_ctr     = true / false   (por defecto: false) camara fija trasera estilo CTR Nitro-Fueled
+ *   sacred_azul    = true / false   (por defecto: false) el Sacred Fire de derrape da AZUL en vez de amarillo potenciado
  *
  * Tambien se cambia dentro del juego con el comando  /ctrkart manejoclasico  (alterna)  o
  * /ctrkart manejoclasico true|false.
@@ -26,6 +27,9 @@ public final class KartConfig {
 
     /** CAMARA CTR: tercera persona fija detras del kart, que sigue su trayectoria. */
     public static volatile boolean ctrCamera = false;
+
+    /** SACRED AZUL: false = encestar el Sacred Fire da amarillo potenciado (por defecto); true = da el azul de siempre. */
+    public static volatile boolean blueSacred = false;
 
     private KartConfig() {}
 
@@ -49,6 +53,7 @@ public final class KartConfig {
                 // archivo sin version: se trata como el antiguo
             }
             ctrCamera = Boolean.parseBoolean(p.getProperty("camara_ctr", "false").trim());
+            blueSacred = Boolean.parseBoolean(p.getProperty("sacred_azul", "false").trim());
             if (version < CONFIG_VERSION) {
                 classicHandling = true; // el manejo clasico pasa a ser el modo por defecto
                 save();
@@ -66,6 +71,7 @@ public final class KartConfig {
         p.setProperty("version", Integer.toString(CONFIG_VERSION));
         p.setProperty("manejo_clasico", Boolean.toString(classicHandling));
         p.setProperty("camara_ctr", Boolean.toString(ctrCamera));
+        p.setProperty("sacred_azul", Boolean.toString(blueSacred));
         try {
             Files.createDirectories(f.getParent());
             try (OutputStream out = Files.newOutputStream(f)) {

@@ -81,6 +81,7 @@ public class KartMod implements ModInitializer {
 
         ServerTickEvents.END_LEVEL_TICK.register(KartMod::tickLevel);
         KartInvincible.register();
+        KartBlocks.register();
         KartItem.register();
     }
 

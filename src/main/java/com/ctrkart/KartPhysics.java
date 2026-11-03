@@ -2,6 +2,7 @@ package com.ctrkart;
 
 import com.ctrkart.mixin.LivingEntityAccessor;
 import java.util.Locale;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
@@ -22,7 +23,7 @@ import net.minecraft.world.phys.Vec3;
  * Controles:  W/S acelerar/frenar | A/D girar | ESPACIO = hop; mantenido + A/D = derrapar
  *
  * DERRAPE (automatico, sin pulsar nada mas): mientras mantienes ESPACIO girando, la barra se llena.
- *   1a barra llena = nivel 1 (rojo), 2a = nivel 2 (amarillo), 3a = SACRED FIRE (azul) al instante.
+ *   1a barra llena = nivel 1 (rojo), 2a = nivel 2 (amarillo), 3a = SACRED FIRE (amarillo potenciado; azul con /ctrkart sacredazul true).
  *   Al soltar ESPACIO con nivel 1 o 2 se cobra un turbo de ese nivel.
  *
  * MANEJO CLASICO (ajuste "manejo_clasico", ver KartConfig): el derrape es mas recto y reacciona a hacia donde giras
@@ -35,6 +36,12 @@ import net.minecraft.world.phys.Vec3;
  * Se drena siempre, sin pausas; el Sacred Fire dura mientras queden reservas.
  * Se recuerdan los ultimos 3 Sacred Fire hechos con ESPACIO: si los 3 fueron seguidos (cada uno con el
  * anterior aun activo), hay un poco mas de velocidad hasta que se acaben las reservas.
+ *
+ * NIVELES DE SACRED FIRE (mientras haya reservas): 1 rojo, 2 amarillo, 3 amarillo potenciado, 4 azul.
+ *   - Caida: rojo si es baja (menos de ~5 bloques), amarillo si es alta (~5 o mas). Solo si no tenias uno mayor.
+ *   - Sacred Fire de derrape: amarillo potenciado (o azul con /ctrkart sacredazul true).
+ *   - Bloque Sacred Pad: azul + reservas + animacion.
+ * U-TURN: con S en el aire (a cualquier altura) giras mucho mas facil y no pierdes velocidad.
  *
  * Todos los numeros son de balance propio, ajustables aqui.
  */
@@ -57,8 +64,10 @@ public final class KartPhysics {
     static final int BOOST_CAP = 120;
     static final double[] FIRE_MULT = {1.00, 1.16, 1.32, 1.50}; // sin fuego / rojo / amarillo / azul
     // Sacred Fire
-    static final double SACRED_MULT = 1.55;    // siempre mayor que la velocidad base y que cualquier otro turbo
-    static final double SACRED_CHAIN_MULT = 1.62; // 3 Sacred Fire de derrape seguidos: un poco mas, mientras duren las reservas
+    // Velocidad segun el nivel del Sacred Fire: 0 ninguno, 1 rojo, 2 amarillo, 3 amarillo potenciado, 4 azul
+    static final double[] SACRED_TIER_MULT = {1.00, 1.16, 1.32, 1.36, 1.55};
+    // Con 3 Sacred Fire de derrape seguidos: un poco mas, mientras duren las reservas (solo niveles 3 y 4)
+    static final double[] SACRED_TIER_CHAIN = {1.00, 1.16, 1.32, 1.41, 1.62};
     static final double SUPER_MULT = 1.30;     // Super Motor
     // Energia
     static final float ENERGY_MAX = 200f;      // tope de las reservas (200%)
@@ -68,9 +77,17 @@ public final class KartPhysics {
     static final float SACRED_ENERGY = 25f;    // energia al asestar un Sacred Fire
     // Caida alta: de FALL_MIN a FALL_FULL bloques de caida, la energia va de FALL_ENERGY_MIN a FALL_ENERGY_MAX
     static final double FALL_MIN = 3.0;
+    static final double FALL_YELLOW_MIN = 4.5; // desde esta caida (~5 bloques) el Sacred Fire es amarillo; por debajo, rojo
     static final double FALL_FULL = 24.0;
     static final float FALL_ENERGY_MIN = 10f;
     static final float FALL_ENERGY_MAX = 100f;
+    // U-Turn (S en el aire)
+    static final int U_TURN_MIN_AIR_TICKS = 2;       // ticks en el aire antes de poder hacer U-Turn
+    static final float U_TURN_STEER_MULT = 2.4f;     // giro multiplicado con A/D durante el U-Turn
+    static final float U_TURN_DRIFT_MULT = 1.6f;     // si ademas derrapas, la curva se cierra esto mas
+    // Bloque Sacred Pad
+    static final float PAD_ENERGY = 40f;             // reservas que da al pisarlo
+    static final int PAD_REARM_TICKS = 10;           // ticks fuera del bloque para que se pueda activar otra vez (10 = 0,5 s)
     // Manejo clasico
     static final int CLASSIC_MAX_HITS = 3;        // Sacred Fire maximos por derrape (contando el primero)
     static final float CLASSIC_CURVE_BASE = 0.45f;  // curvatura del derrape sin tocar A/D (el normal es 0.95)
@@ -86,6 +103,7 @@ public final class KartPhysics {
 
     private static final DustParticleOptions FIRE_RED = new DustParticleOptions(0xFF2A2A, 1.3f);
     private static final DustParticleOptions FIRE_YELLOW = new DustParticleOptions(0xFFD21E, 1.3f);
+    private static final DustParticleOptions FIRE_GOLD = new DustParticleOptions(0xFFF04A, 1.6f);
     private static final DustParticleOptions FIRE_BLUE = new DustParticleOptions(0x2F6BFF, 1.5f);
     private static final DustParticleOptions SMOKE_WHITE = new DustParticleOptions(0xF4F4F4, 1.0f);
     private static final DustParticleOptions SMOKE_BLACK = new DustParticleOptions(0x0B0B0B, 1.6f);
@@ -161,6 +179,9 @@ public final class KartPhysics {
             s.airTicks = 0;
         }
 
+        // --- bloque Sacred Pad ---
+        padCheck(horse, s);
+
         // --- hop ---
         if (jumpPressed && onGround) {
             Vec3 dm = horse.getDeltaMovement();
@@ -225,6 +246,10 @@ public final class KartPhysics {
             }
         }
 
+        // --- U-Turn: S en el aire (a cualquier altura) = giras mucho mas facil y no pierdes velocidad ---
+        boolean uTurn = !onGround && s.airTicks >= U_TURN_MIN_AIR_TICKS && throttle < 0 && s.speed > 0.05;
+        s.uTurn = uTurn;
+
         // --- direccion ---
         float speedFactor = (float) Mth.clamp(Math.abs(s.speed) / 0.12, 0.0, 1.0);
         float rate;
@@ -239,6 +264,9 @@ public final class KartPhysics {
         } else {
             rate = k.turn * steer * speedFactor * (s.speed < 0 ? -1f : 1f);
         }
+        if (uTurn) {
+            rate *= s.drifting ? U_TURN_DRIFT_MULT : U_TURN_STEER_MULT;
+        }
         s.moveYaw += rate;
         float angle = classic ? DRIFT_ANGLE * (0.55f + 0.45f * curve / CLASSIC_CURVE_MAX) : DRIFT_ANGLE; // mas recto = menos cruzado
         float target = s.drifting ? s.driftDir * angle : 0f;
@@ -251,7 +279,8 @@ public final class KartPhysics {
             mult = FIRE_MULT[Math.min(s.fireLevel, 3)];
         }
         if (s.sacred) {
-            mult = Math.max(mult, s.chainBonus ? SACRED_CHAIN_MULT : SACRED_MULT);
+            int tier = Mth.clamp(s.sacredTier, 1, 4);
+            mult = Math.max(mult, s.chainBonus ? SACRED_TIER_CHAIN[tier] : SACRED_TIER_MULT[tier]);
         }
         if (s.superTicks > 0) {
             mult = Math.max(mult, SUPER_MULT);
@@ -268,7 +297,9 @@ public final class KartPhysics {
         } else if (s.drifting) {
             s.speed *= 0.99;
         } else if (throttle < 0) {
-            s.speed -= BRAKE;
+            if (!uTurn) { // en el aire con S (U-Turn) no se frena: se conserva la velocidad
+                s.speed -= BRAKE;
+            }
         } else if (!forced) {
             s.speed *= COAST;
         }
@@ -319,6 +350,7 @@ public final class KartPhysics {
         }
         if (s.sacred && s.energy <= 0) {
             s.sacred = false;
+            s.sacredTier = 0;
             s.chainBonus = false;
         }
         if (s.boostTicks <= 0 && !s.sacred) {
@@ -335,16 +367,41 @@ public final class KartPhysics {
         s.energy = Math.min(ENERGY_MAX, s.energy + amount);
     }
 
-    /** Caida alta: da energia segun la altura y activa la velocidad de Sacred Fire (no entra en la memoria de 3). */
+    /**
+     * Activa un Sacred Fire de este nivel (1 rojo, 2 amarillo, 3 amarillo potenciado, 4 azul) salvo que ya tengas
+     * uno igual o mayor. Devuelve true si el nivel cambio (se activo uno nuevo o subio de nivel).
+     */
+    private static boolean grantSacred(KartState s, int tier) {
+        if (s.sacred && s.sacredTier >= tier) {
+            return false;
+        }
+        s.sacred = true;
+        s.sacredTier = tier;
+        return true;
+    }
+
+    /**
+     * Caida: da energia segun la altura y un Sacred Fire rojo (caida baja) o amarillo (caida alta, ~5 bloques o mas).
+     * Si ya tenias un Sacred Fire de nivel mayor, solo te da las reservas. No entra en la memoria de 3.
+     */
     private static void highFall(AbstractHorse horse, KartState s, double drop) {
         double t = Mth.clamp((drop - FALL_MIN) / (FALL_FULL - FALL_MIN), 0.0, 1.0);
         addEnergy(s, (float) (FALL_ENERGY_MIN + t * (FALL_ENERGY_MAX - FALL_ENERGY_MIN)));
-        boolean fresh = !s.sacred;
-        s.sacred = true;
-        s.fireLevel = 3;
-        if (fresh) {
+        if (grantSacred(s, drop >= FALL_YELLOW_MIN ? 2 : 1)) {
             sacredBurst(horse, s);
         }
+    }
+
+    /** Bloque Sacred Pad: Sacred Fire azul, reservas y la animacion del Sacred Fire. */
+    private static void padCheck(AbstractHorse horse, KartState s) {
+        BlockPos below = new BlockPos(Mth.floor(horse.getX()), Mth.floor(horse.getY() - 0.1), Mth.floor(horse.getZ()));
+        boolean onPad = horse.level().getBlockState(below).getBlock() == KartBlocks.SACRED_PAD;
+        if (onPad && s.padOffTicks >= PAD_REARM_TICKS) {
+            addEnergy(s, PAD_ENERGY);
+            grantSacred(s, 4);
+            sacredBurst(horse, s); // sonido, explosion, wheelie y motor, como un Sacred Fire
+        }
+        s.padOffTicks = onPad ? 0 : Math.min(1000, s.padOffTicks + 1);
     }
 
     /**
@@ -361,8 +418,8 @@ public final class KartPhysics {
             s.chainBonus = true; // 3 seguidos: velocidad un poco mayor hasta que se acaben las reservas
         }
         addEnergy(s, SACRED_ENERGY);
-        s.sacred = true;
-        s.fireLevel = 3;
+        // Amarillo potenciado por defecto; azul con /ctrkart sacredazul true. Si ya tienes uno mayor, se conserva.
+        grantSacred(s, KartConfig.blueSacred ? 4 : 3);
         sacredBurst(horse, s);
     }
 
@@ -401,8 +458,19 @@ public final class KartPhysics {
         return tier >= 3 ? FIRE_BLUE : tier == 2 ? FIRE_YELLOW : FIRE_RED;
     }
 
+    private static DustParticleOptions sacredDust(int tier) {
+        return tier >= 4 ? FIRE_BLUE : tier == 3 ? FIRE_GOLD : tier == 2 ? FIRE_YELLOW : FIRE_RED;
+    }
+
+    private static ParticleOptions sacredFlame(int tier) {
+        return tier >= 4 ? ParticleTypes.SOUL_FIRE_FLAME : tier >= 2 ? ParticleTypes.FLAME : ParticleTypes.SMALL_FLAME;
+    }
+
     private static void sacredBurst(AbstractHorse horse, KartState s) {
         s.sacredEvents++;
+        int tier = Mth.clamp(s.sacredTier, 1, 4);
+        DustParticleOptions dust = sacredDust(tier);
+        ParticleOptions flame = tier >= 4 ? ParticleTypes.SOUL_FIRE_FLAME : ParticleTypes.FLAME;
         Level level = horse.level();
         RandomSource r = horse.getRandom();
         sfx(horse, KartSounds.nextSacred(), 0.9f, 1.0f); // uno de los 3 sonidos, alternando
@@ -414,8 +482,8 @@ public final class KartPhysics {
                 double vx = (r.nextDouble() - 0.5) * 0.3;
                 double vy = 0.05 + r.nextDouble() * 0.1;
                 double vz = (r.nextDouble() - 0.5) * 0.3;
-                level.addParticle(FIRE_BLUE, e.x, e.y, e.z, vx, vy, vz);
-                level.addParticle(ParticleTypes.SOUL_FIRE_FLAME, e.x, e.y, e.z, vx, vy, vz);
+                level.addParticle(dust, e.x, e.y, e.z, vx, vy, vz);
+                level.addParticle(flame, e.x, e.y, e.z, vx, vy, vz);
             }
         }
     }
@@ -450,11 +518,11 @@ public final class KartPhysics {
             }
         }
         if (s.sacred || s.boostTicks > 0) {
-            // Colores bien distintos: rojo (nivel 1), amarillo (nivel 2), azul (Sacred Fire)
-            ParticleOptions color = s.sacred ? FIRE_BLUE : (s.fireLevel >= 2 ? FIRE_YELLOW : FIRE_RED);
-            ParticleOptions flame = s.sacred ? ParticleTypes.SOUL_FIRE_FLAME
-                    : (s.fireLevel >= 2 ? ParticleTypes.FLAME : ParticleTypes.SMALL_FLAME);
-            int n = s.sacred ? 3 : Math.max(1, s.fireLevel);
+            // Colores bien distintos: rojo (1), amarillo (2), amarillo potenciado (3), azul (4)
+            int fl = s.sacred ? Mth.clamp(s.sacredTier, 1, 4) : s.fireLevel;
+            ParticleOptions color = sacredDust(fl);
+            ParticleOptions flame = sacredFlame(fl);
+            int n = s.sacred ? (fl >= 3 ? 3 : 2) : Math.max(1, s.fireLevel);
             for (int side = -1; side <= 1; side += 2) {
                 Vec3 e = local(horse, s, bodyYaw, EXHAUST_BACK, side * EXHAUST_SIDE, EXHAUST_Y);
                 for (int i = 0; i < n; i++) {
@@ -465,6 +533,14 @@ public final class KartPhysics {
                     level.addParticle(flame, px, py, pz, ox * 0.18, 0.01, oz * 0.18);
                 }
             }
+        }
+        if (s.sacred && s.sacredTier == 3 && horse.tickCount % 2 == 0) { // el amarillo potenciado suelta chispas extra
+            Vec3 e = local(horse, s, bodyYaw, EXHAUST_BACK, 0.0, EXHAUST_Y);
+            level.addParticle(ParticleTypes.ELECTRIC_SPARK, e.x, e.y, e.z, ox * 0.1, 0.05, oz * 0.1);
+        }
+        if (s.uTurn && horse.tickCount % 2 == 0) { // estela de nubes durante el U-Turn
+            Vec3 w = local(horse, s, bodyYaw, 0.35, 0.0, 0.1);
+            level.addParticle(ParticleTypes.CLOUD, w.x, w.y, w.z, 0, 0.02, 0);
         }
         if (s.drifting && horse.onGround()) {
             for (int side = -1; side <= 1; side += 2) { // humo + chispas del color del nivel en las ruedas traseras
@@ -490,7 +566,8 @@ public final class KartPhysics {
     private static void hud(KartState s) {
         StringBuilder sb = new StringBuilder();
         if (s.sacred) {
-            sb.append("§9§lSACRED FIRE§r ");
+            String tierCol = s.sacredTier >= 4 ? "§9" : s.sacredTier == 3 ? "§6" : s.sacredTier == 2 ? "§e" : "§c";
+            sb.append(tierCol).append("§lSACRED FIRE").append(s.sacredTier == 3 ? "+" : "").append("§r ");
             int stars = s.chainBonus ? 3 : (s.strikeCount > 0 ? (s.strikeChained[2] ? 2 : 1) : 0);
             if (stars > 0) { // memoria de Sacred Fire seguidos
                 sb.append("§6").append("★".repeat(stars)).append("§8").append("☆".repeat(3 - stars)).append("§r ");
@@ -523,6 +600,9 @@ public final class KartPhysics {
         }
         if (s.superTicks > 0) {
             sb.append(String.format(Locale.ROOT, " §dSuper Motor %.1fs", s.superTicks / 20f));
+        }
+        if (s.uTurn) {
+            sb.append(" §d§l↻ U-TURN§r");
         }
         if (s.drifting) {
             int cells = TIER_TICKS;

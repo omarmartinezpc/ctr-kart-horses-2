@@ -13,6 +13,7 @@ import net.minecraft.network.chat.Component;
 /**
  * /ctrkart manejoclasico [true|false]  -> MANEJO CLASICO (derrape recto + Sacred Fire manual)
  * /ctrkart camara [true|false]         -> CAMARA CTR (tercera persona fija detras del kart)
+ * /ctrkart sacredazul [true|false]     -> el Sacred Fire de derrape da AZUL (true) o amarillo potenciado (false)
  * Sin argumento alterna; se guardan en el archivo de config. Se usa Brigadier directamente (la clase
  * ClientCommandManager cambio de nombre en las versiones nuevas de Fabric API).
  */
@@ -27,7 +28,10 @@ public final class KartClientCommands {
                                 "[CTR Kart] Manejo clasico DESACTIVADO: derrape y Sacred Fire automaticos."))
                         .then(toggle("camara", () -> KartConfig.ctrCamera, v -> KartConfig.ctrCamera = v,
                                 "[CTR Kart] Camara CTR ACTIVADA: camara fija detras del kart al montarlo.",
-                                "[CTR Kart] Camara CTR DESACTIVADA."))));
+                                "[CTR Kart] Camara CTR DESACTIVADA."))
+                        .then(toggle("sacredazul", () -> KartConfig.blueSacred, v -> KartConfig.blueSacred = v,
+                                "[CTR Kart] Sacred Fire de derrape: AZUL (velocidad maxima).",
+                                "[CTR Kart] Sacred Fire de derrape: AMARILLO POTENCIADO (por defecto)."))));
     }
 
     private static LiteralArgumentBuilder<FabricClientCommandSource> toggle(String name, BooleanSupplier get,
