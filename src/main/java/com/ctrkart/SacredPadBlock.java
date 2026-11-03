@@ -1,6 +1,5 @@
 package com.ctrkart;
 
-import com.mojang.serialization.MapCodec;
 import net.minecraft.core.Direction;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.level.block.Block;
@@ -18,17 +17,11 @@ import net.minecraft.world.level.block.state.properties.EnumProperty;
  * Tambien gira con las herramientas de estructuras (rotar / espejo).
  */
 public class SacredPadBlock extends Block {
-    public static final MapCodec<SacredPadBlock> CODEC = simpleCodec(SacredPadBlock::new);
     public static final EnumProperty<Direction> FACING = BlockStateProperties.FACING;
 
     public SacredPadBlock(Properties properties) {
         super(properties);
         registerDefaultState(stateDefinition.any().setValue(FACING, Direction.UP));
-    }
-
-    @Override
-    protected MapCodec<SacredPadBlock> codec() {
-        return CODEC;
     }
 
     @Override
