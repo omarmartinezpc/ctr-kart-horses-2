@@ -1,8 +1,5 @@
 package com.ctrkart;
 
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
-import java.lang.reflect.Proxy;
 import java.util.Locale;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.minecraft.commands.CommandSourceStack;
@@ -51,75 +48,9 @@ public final class KartItem {
         UseBlockCallback.EVENT.register(KartItem::onUseBlock);
     }
 
-    /**
-     * Anade el objeto a la pestana de huevos de aparicion. Fabric API cambio el nombre de este evento
-     * (ItemGroupEvents -> CreativeModeTabEvents), asi que se busca por reflexion con los dos nombres.
-     */
+    /** Anade un objeto a una pestana del creativo (ver KartCreative). */
     static boolean registerCreativeEntry(Object tabKey, java.util.function.Supplier<ItemStack> stackSupplier, String label) {
-        String[] candidates = {
-            "net.fabricmc.fabric.api.creativetab.v1.CreativeModeTabEvents",
-            "net.fabricmc.fabric.api.itemgroup.v1.ItemGroupEvents"
-        };
-        for (String className : candidates) {
-            try {
-                Class<?> c = Class.forName(className);
-                Method factory = null;
-                for (Method m : c.getMethods()) {
-                    if (Modifier.isStatic(m.getModifiers()) && m.getParameterCount() == 1
-                            && m.getName().startsWith("modify") && m.getName().endsWith("Event")) {
-                        factory = m;
-                        break;
-                    }
-                }
-                Class<?> listener = null;
-                for (Class<?> inner : c.getDeclaredClasses()) {
-                    if (inner.isInterface() && inner.getSimpleName().startsWith("Modify")) {
-                        listener = inner;
-                        break;
-                    }
-                }
-                if (factory == null || listener == null) {
-                    continue;
-                }
-                Object event = factory.invoke(null, tabKey);
-                Object proxy = Proxy.newProxyInstance(listener.getClassLoader(), new Class<?>[] {listener}, (self, m, args) -> {
-                    switch (m.getName()) {
-                        case "toString":
-                            return "ctrkart-creative-entry-" + label;
-                        case "hashCode":
-                            return System.identityHashCode(self);
-                        case "equals":
-                            return args != null && args.length == 1 && self == args[0];
-                        default:
-                            if (args != null && args.length == 1 && args[0] != null) {
-                                addToTab(args[0], stackSupplier.get());
-                            }
-                            return null;
-                    }
-                });
-                Class.forName("net.fabricmc.fabric.api.event.Event").getMethod("register", Object.class).invoke(event, proxy);
-                System.out.println("[ctrkart] " + label + " anadido al creativo (" + className + ")");
-                return true;
-            } catch (ReflectiveOperationException | RuntimeException ex) {
-                System.err.println("[ctrkart] Creativo: " + className + " no sirvio: " + ex);
-            }
-        }
-        return false;
-    }
-
-    /** "output" es el objeto de Fabric/Minecraft que recibe los objetos de la pestana; tiene un metodo accept(ItemStack). */
-    private static void addToTab(Object output, ItemStack stack) {
-        try {
-            for (Method m : output.getClass().getMethods()) {
-                if (m.getName().equals("accept") && m.getParameterCount() == 1 && m.getParameterTypes()[0] == ItemStack.class) {
-                    m.setAccessible(true);
-                    m.invoke(output, stack);
-                    return;
-                }
-            }
-        } catch (ReflectiveOperationException | RuntimeException ex) {
-            System.err.println("[ctrkart] Creativo: no pude anadir el objeto: " + ex);
-        }
+        return KartCreative.add(tabKey, stackSupplier, label);
     }
 
     private static InteractionResult onUseBlock(Player player, Level level, InteractionHand hand, BlockHitResult hit) {

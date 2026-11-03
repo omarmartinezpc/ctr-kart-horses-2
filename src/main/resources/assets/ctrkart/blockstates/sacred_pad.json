@@ -1,5 +1,10 @@
 {
  "variants": {
-  "": { "model": "ctrkart:block/sacred_pad" }
+  "facing=up":    { "model": "ctrkart:block/sacred_pad" },
+  "facing=down":  { "model": "ctrkart:block/sacred_pad", "x": 180 },
+  "facing=north": { "model": "ctrkart:block/sacred_pad", "x": 90 },
+  "facing=south": { "model": "ctrkart:block/sacred_pad", "x": 270 },
+  "facing=east":  { "model": "ctrkart:block/sacred_pad", "x": 90, "y": 90 },
+  "facing=west":  { "model": "ctrkart:block/sacred_pad", "x": 90, "y": 270 }
  }
 }

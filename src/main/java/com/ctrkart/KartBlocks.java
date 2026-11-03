@@ -27,7 +27,7 @@ public final class KartBlocks {
     private static final ResourceKey<Item> PAD_ITEM_KEY = ResourceKey.create(Registries.ITEM, PAD_ID);
 
     public static final Block SACRED_PAD = Registry.register(BuiltInRegistries.BLOCK, PAD_BLOCK_KEY,
-            new Block(BlockBehaviour.Properties.of()
+            new SacredPadBlock(BlockBehaviour.Properties.of()
                     .setId(PAD_BLOCK_KEY)
                     .mapColor(MapColor.COLOR_GREEN)
                     .sound(SoundType.METAL)

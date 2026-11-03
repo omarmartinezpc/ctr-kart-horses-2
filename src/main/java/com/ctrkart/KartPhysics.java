@@ -382,14 +382,13 @@ public final class KartPhysics {
 
     /**
      * Caida: da energia segun la altura y un Sacred Fire rojo (caida baja) o amarillo (caida alta, ~5 bloques o mas).
-     * Si ya tenias un Sacred Fire de nivel mayor, solo te da las reservas. No entra en la memoria de 3.
+     * Si ya tenias un Sacred Fire de nivel mayor, solo te da las reservas (y la animacion). No entra en la memoria de 3.
      */
     private static void highFall(AbstractHorse horse, KartState s, double drop) {
         double t = Mth.clamp((drop - FALL_MIN) / (FALL_FULL - FALL_MIN), 0.0, 1.0);
         addEnergy(s, (float) (FALL_ENERGY_MIN + t * (FALL_ENERGY_MAX - FALL_ENERGY_MIN)));
-        if (grantSacred(s, drop >= FALL_YELLOW_MIN ? 2 : 1)) {
-            sacredBurst(horse, s);
-        }
+        grantSacred(s, drop >= FALL_YELLOW_MIN ? 2 : 1);
+        sacredBurst(horse, s); // siempre: sonido, explosion y caballito, aunque ya tuvieras un Sacred Fire mayor (solo reservas)
     }
 
     /** Bloque Sacred Pad: Sacred Fire azul, reservas y la animacion del Sacred Fire. */
