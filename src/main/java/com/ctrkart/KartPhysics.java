@@ -46,6 +46,10 @@ public final class KartPhysics {
     static final double HOP_VELOCITY = 0.24;
     static final double DRIFT_MIN_SPEED = 0.22;
     static final float DRIFT_ANGLE = 26f;
+    /** Ayuda para subir bloques y slabs en el aire: durante los primeros ticks de un salto/caida el kart sube escalones como si estuviera en el suelo. */
+    static final int STEP_ASSIST_TICKS = 12;
+    /** Si la fisica lleva mas de esto sin correr (2 s), se considera que te bajaste y se reinicia al volver a montar. */
+    static final long RESET_GAP_TICKS = 40;
     // Derrape
     static final int TIER_TICKS = 7;           // ticks que tarda en llenarse cada barra (7 = 0,35 s)
     static final int MAX_TURBOS = 3;           // la 3a barra es el Sacred Fire
@@ -98,11 +102,13 @@ public final class KartPhysics {
     private KartPhysics() {}
 
     public static void tick(AbstractHorse horse, Player rider, KartState s) {
-        Level level = horse.level();
-        long now = level.getGameTime();
-        if (now - s.lastTick > 2) { // se acaba de montar
+        // Se reinicia SOLO al montar (KartCamera marca needsReset al bajarte) o si la fisica llevaba mucho sin correr.
+        // Antes se usaba la hora del servidor, que da saltos con el lag y borraba el Sacred Fire y la velocidad en pleno juego.
+        long now = KartTracker.clientTick;
+        if (s.needsReset || now - s.lastTick > RESET_GAP_TICKS) {
             s.resetDynamic();
             s.moveYaw = horse.getYRot();
+            s.needsReset = false;
         }
         s.lastTick = now;
 
@@ -165,6 +171,7 @@ public final class KartPhysics {
         // --- inicio de derrape: hop + girar manteniendo el salto ---
         if (!s.drifting && jump && s.hopAir && steer != 0 && s.speed >= DRIFT_MIN_SPEED) {
             s.drifting = true;
+            s.driftGrounded = false; // la barra empieza a cargar al aterrizar del hop
             s.driftDir = steer > 0 ? 1 : -1;
             s.charge = 0;
             s.pending = 0;
@@ -172,7 +179,12 @@ public final class KartPhysics {
 
         // --- derrape: la barra se llena sola; cada barra llena sube un nivel ---
         if (s.drifting) {
-            boolean canCharge = onGround && s.pending < MAX_TURBOS
+            if (onGround) {
+                s.driftGrounded = true;
+            }
+            // Una vez que el derrape toco el suelo, la barra sigue cargando aunque caigas o rebotes en escalones
+            // (antes solo cargaba con onGround y se pausaba en el aire).
+            boolean canCharge = (onGround || s.driftGrounded) && s.pending < MAX_TURBOS
                     && !(classic && (s.driftHits >= CLASSIC_MAX_HITS || s.sacredFailed));
             if (!jump || s.speed < DRIFT_MIN_SPEED * 0.6) {
                 endDrift(horse, s);
@@ -283,6 +295,13 @@ public final class KartPhysics {
         Vec3 dm = horse.getDeltaMovement();
         horse.setDeltaMovement(-Math.sin(yawRad) * s.speed, dm.y, Math.cos(yawRad) * s.speed);
         s.appliedSpeed = s.speed;
+        // Escalones en el aire: el hop sube solo unos 0,47 bloques, menos que un slab (0,5), asi que el kart se
+        // chocaba de lado contra el bloque, frenaba (blocked) y perdia la velocidad. Marcamos "en el suelo" solo
+        // para este movimiento: el juego solo intenta subir el escalon si cree que estas en el suelo, y despues
+        // recalcula onGround el mismo. Si no hay choque horizontal, esto no cambia nada.
+        if (!onGround && s.airTicks > 0 && s.airTicks <= STEP_ASSIST_TICKS && s.speed > 0.05) {
+            horse.setOnGround(true);
+        }
         float bodyYaw = s.moveYaw + s.bodyOffset;
         horse.setYRot(bodyYaw);
         horse.setXRot(0f);
@@ -357,6 +376,7 @@ public final class KartPhysics {
             sfx(horse, SoundEvents.FIREWORK_ROCKET_LAUNCH, 0.8f, 1.0f);
         }
         s.drifting = false;
+        s.driftGrounded = false;
         s.driftDir = 0;
         s.pending = 0;
         s.charge = 0;

@@ -11,14 +11,17 @@ import net.minecraft.world.entity.player.Player;
 
 /**
  * Camara y cabeza del jugador mientras conduce un kart (solo cliente):
- *  - Siempre: la cabeza no puede girar mas de HEAD_LIMIT_DEG grados a cada lado respecto al kart.
+ *  - Siempre: la CAMARA es libre (no se limita). La CABEZA del modelo del jugador ya no va ligada a la camara:
+ *    mira hacia donde va el kart (su trayectoria), con un poco de giro extra hacia el lado al que giras con A/D.
  *  - Con la opcion "camara_ctr": tercera persona fija detras del kart, que sigue su trayectoria con un poco
  *    de retraso (como en CTR Nitro-Fueled). Se pone sola al montar y se devuelve al bajar.
  * El cambio de tipo de camara se hace por reflexion (los nombres pueden cambiar entre versiones).
  */
 public final class KartCamera {
-    /** Giro maximo de la cabeza a izquierda y derecha respecto al kart, en grados (antes: unos 105). */
-    private static final float HEAD_LIMIT_DEG = 50f;
+    /** Cuanto gira la cabeza (en grados) hacia el lado al que giras con A/D, ademas de mirar a la trayectoria. 0 = mirar recto. */
+    private static final float HEAD_STEER_DEG = 20f;
+    /** Lo rapido que la cabeza alcanza su direccion (0..1 por tick; 1 = al instante). */
+    private static final float HEAD_FOLLOW = 0.35f;
     /** Inclinacion de la camara CTR (grados hacia abajo) y lo rapido que sigue al kart (0..1 por tick). */
     private static final float CAM_PITCH = 14f;
     private static final float CAM_FOLLOW = 0.18f;
@@ -28,6 +31,7 @@ public final class KartCamera {
     private static Method setType;
     private static Object previousType;
     private static boolean wasOnKart;
+    private static KartState lastKart;
 
     private KartCamera() {}
 
@@ -42,12 +46,27 @@ public final class KartCamera {
             }
         }
         boolean onKart = horse != null;
-        if (onKart && !wasOnKart && KartConfig.ctrCamera) {
-            enterChase(mc);
+        if (onKart && !wasOnKart) {
+            st.headInit = false; // la cabeza se coloca de golpe al montar
+            if (KartConfig.ctrCamera) {
+                enterChase(mc);
+            }
         } else if (!onKart && wasOnKart) {
             leaveChase(mc);
+            if (lastKart != null) {
+                lastKart.needsReset = true; // al volver a montar la fisica empieza de cero
+            }
+            if (p != null) { // la cabeza vuelve a seguir a la camara
+                p.yHeadRot = p.getYRot();
+                p.yHeadRotO = p.getYRot();
+            }
+        }
+        if (onKart && wasOnKart && lastKart != null && lastKart != st) { // pasaste de un kart a otro
+            lastKart.needsReset = true;
+            st.headInit = false;
         }
         wasOnKart = onKart;
+        lastKart = onKart ? st : null;
         if (!onKart) {
             return;
         }
@@ -57,18 +76,31 @@ public final class KartCamera {
             float cur = p.getYRot();
             float yaw = cur + Mth.wrapDegrees(st.moveYaw - cur) * CAM_FOLLOW;
             p.setYRot(yaw);
-            p.setYHeadRot(yaw);
             p.setXRot(Mth.lerp(0.2f, p.getXRot(), CAM_PITCH));
-        } else {
-            // cabeza: rango corto a izquierda y derecha
-            float hy = horse.getYRot();
-            float rel = Mth.wrapDegrees(p.getYRot() - hy);
-            if (rel > HEAD_LIMIT_DEG || rel < -HEAD_LIMIT_DEG) {
-                float yaw = hy + Mth.clamp(rel, -HEAD_LIMIT_DEG, HEAD_LIMIT_DEG);
-                p.setYRot(yaw);
-                p.setYHeadRot(yaw);
-            }
         }
+        // Con camara libre no se toca la vista: puedes mirar a donde quieras.
+        if (!st.needsReset) { // si la fisica aun no ha corrido en este kart, no hay trayectoria que seguir todavia
+            updateHead(p, st);
+        }
+    }
+
+    /**
+     * La cabeza del MODELO del jugador mira hacia donde va el kart, sin depender de la camara. Se escribe al final
+     * de cada tick de cliente (despues de que el juego ponga la cabeza donde mira la camara), asi lo que se dibuja
+     * entre ticks es nuestra direccion. La rotacion de la CAMARA es yRot, que aqui no se toca.
+     */
+    private static void updateHead(Player p, KartState st) {
+        float target = st.moveYaw + st.steerAnim * HEAD_STEER_DEG;
+        float prev = st.headYaw;
+        if (!st.headInit) {
+            st.headYaw = target;
+            prev = target;
+            st.headInit = true;
+        } else {
+            st.headYaw += Mth.wrapDegrees(target - st.headYaw) * HEAD_FOLLOW;
+        }
+        p.yHeadRotO = prev;
+        p.yHeadRot = st.headYaw;
     }
 
     private static void find(Minecraft mc) {

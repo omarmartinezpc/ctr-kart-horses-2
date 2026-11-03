@@ -9,6 +9,8 @@ public final class KartTracker {
     private static final Map<Integer, KartState> STATES = new ConcurrentHashMap<>();
     /** true cuando el modelo de kart se creo bien: solo entonces se oculta el caballo. */
     public static volatile boolean modelReady;
+    /** Cuenta los ticks de cliente (la sube KartModClient). No depende de la hora del servidor, que puede dar saltos. */
+    public static long clientTick;
 
     private KartTracker() {}
 

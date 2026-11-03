@@ -11,7 +11,11 @@ public final class KartState {
     public int sacredEvents; // sube 1 con cada Sacred Fire asestado (el sonido del motor reacciona a esto)
 
     // --- estado dinamico (se reinicia al montar) ---
-    public long lastTick = Long.MIN_VALUE;
+    public long lastTick;      // ultimo tick de CLIENTE (KartTracker.clientTick) en que corrio la fisica
+    public boolean needsReset = true; // true = la proxima vez que corra la fisica se reinicia el estado dinamico (al montar)
+    public float headYaw;      // hacia donde mira la cabeza del jugador (solo visual, no depende de la camara)
+    public boolean headInit;   // false = la cabeza se coloca de golpe al montar
+    public boolean driftGrounded; // este derrape ya toco el suelo: puede seguir cargando aunque estes en el aire (caidas)
     public float moveYaw;      // direccion real de avance
     public float bodyOffset;   // cuanto "cruza" el kart respecto a su avance al derrapar
     public double speed;       // bloques/tick (negativo = marcha atras)
@@ -47,6 +51,7 @@ public final class KartState {
         backHeld = false;
         hopAir = false;
         drifting = false;
+        driftGrounded = false;
         driftDir = 0;
         charge = 0;
         pending = 0;

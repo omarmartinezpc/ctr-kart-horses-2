@@ -25,6 +25,7 @@ public class KartModClient implements ClientModInitializer {
         KartPhysics.ATTACK_CLICKS = KartModClient::consumeAttackClicks;
         KartClientCommands.register();
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            KartTracker.clientTick++;
             KartVisuals.tick(client);
             KartCamera.tick(client);
         });
