@@ -29,9 +29,9 @@ public final class KartState {
     public int boostTicks;     // turbo de derrape restante (rojo/amarillo/azul)
     public int fireLevel;      // 0 sin fuego, 1 rojo, 2 amarillo, 3 azul
     public boolean sacred;     // Sacred Fire activo
-    public int sacredTier;     // nivel del Sacred Fire activo: 0 ninguno, 1 rojo, 2 amarillo, 3 amarillo potenciado, 4 azul
+    public int sacredTier;     // nivel del Sacred Fire activo: 0 ninguno, 1 rojo, 2 amarillo, 3 amarillo potenciado, 4-6 Blue Fire 1-3, 7-8 Super Blue Fire 1-2
     public boolean uTurn;      // U-Turn activo (S en el aire)
-    public int padTier;        // nivel del ultimo Sacred Pad pisado sin salir de el (4 = Blue Fire 1, 5 = 2, 6 = 3)
+    public int padTier;        // nivel del ultimo Sacred Pad pisado sin salir de el (4-6 = Blue Fire 1-3, 7-8 = Super Blue Fire 1-2)
     public int padOffTicks = 1000; // ticks desde que pisaste un bloque Sacred Pad (para que no se active en cada tick)
     public boolean chainBonus; // 3 Sacred Fire de derrape seguidos: un poco mas de velocidad mientras duren las reservas
     /** Memoria de los ultimos 3 Sacred Fire hechos con ESPACIO (true = se logro con el anterior aun activo). */

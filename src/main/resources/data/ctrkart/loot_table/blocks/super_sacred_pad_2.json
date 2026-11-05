@@ -1,0 +1,21 @@
+{
+ "type": "minecraft:block",
+ "pools": [
+  {
+   "rolls": 1,
+   "bonus_rolls": 0,
+   "conditions": [
+    {
+     "condition": "minecraft:survives_explosion"
+    }
+   ],
+   "entries": [
+    {
+     "type": "minecraft:item",
+     "name": "ctrkart:super_sacred_pad_2"
+    }
+   ]
+  }
+ ],
+ "random_sequence": "ctrkart:blocks/super_sacred_pad_2"
+}

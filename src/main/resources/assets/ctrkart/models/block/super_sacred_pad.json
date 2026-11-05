@@ -1,0 +1,6 @@
+{
+ "parent": "minecraft:block/cube_all",
+ "textures": {
+  "all": "ctrkart:block/super_sacred_pad"
+ }
+}
