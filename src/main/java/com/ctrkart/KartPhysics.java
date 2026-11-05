@@ -64,10 +64,17 @@ public final class KartPhysics {
     static final int BOOST_CAP = 120;
     static final double[] FIRE_MULT = {1.00, 1.16, 1.32, 1.50}; // sin fuego / rojo / amarillo / azul
     // Sacred Fire
-    // Velocidad segun el nivel del Sacred Fire: 0 ninguno, 1 rojo, 2 amarillo, 3 amarillo potenciado, 4 azul
-    static final double[] SACRED_TIER_MULT = {1.00, 1.16, 1.32, 1.36, 1.55};
-    // Con 3 Sacred Fire de derrape seguidos: un poco mas, mientras duren las reservas (solo niveles 3 y 4)
-    static final double[] SACRED_TIER_CHAIN = {1.00, 1.16, 1.32, 1.41, 1.62};
+    // Niveles de Sacred Fire: 0 ninguno, 1 rojo, 2 amarillo, 3 amarillo potenciado,
+    // 4 = BLUE FIRE NIVEL 1 (el azul de siempre), 5 = BLUE FIRE NIVEL 2 (+12%), 6 = BLUE FIRE NIVEL 3 (+22%).
+    // Los niveles 2 y 3 de Blue Fire se consiguen con sus propios bloques (Sacred Pad nivel 2 y 3).
+    static final double BLUE2_BONUS = 1.12;
+    static final double BLUE3_BONUS = 1.22;
+    static final int TIER_BLUE1 = 4;
+    static final int TIER_BLUE2 = 5;
+    static final int TIER_BLUE3 = 6;
+    static final double[] SACRED_TIER_MULT = {1.00, 1.16, 1.32, 1.36, 1.55, 1.55 * BLUE2_BONUS, 1.55 * BLUE3_BONUS};
+    // Con 3 Sacred Fire de derrape seguidos: un poco mas, mientras duren las reservas (niveles 3 en adelante)
+    static final double[] SACRED_TIER_CHAIN = {1.00, 1.16, 1.32, 1.41, 1.62, 1.62 * BLUE2_BONUS, 1.62 * BLUE3_BONUS};
     static final double SUPER_MULT = 1.30;     // Super Motor
     // Energia
     static final float ENERGY_MAX = 200f;      // tope de las reservas (200%)
@@ -105,6 +112,9 @@ public final class KartPhysics {
     private static final DustParticleOptions FIRE_YELLOW = new DustParticleOptions(0xFFD21E, 1.3f);
     private static final DustParticleOptions FIRE_GOLD = new DustParticleOptions(0xFFF04A, 1.6f);
     private static final DustParticleOptions FIRE_BLUE = new DustParticleOptions(0x2F6BFF, 1.5f);
+    // Blue Fire nivel 2 y 3: siguen siendo azules, pero mas brillantes y grandes (nivel 3 un poco mas)
+    private static final DustParticleOptions FIRE_BLUE_2 = new DustParticleOptions(0x4DA8FF, 1.8f);
+    private static final DustParticleOptions FIRE_BLUE_3 = new DustParticleOptions(0x7CC4FF, 2.0f);
     private static final DustParticleOptions SMOKE_WHITE = new DustParticleOptions(0xF4F4F4, 1.0f);
     private static final DustParticleOptions SMOKE_BLACK = new DustParticleOptions(0x0B0B0B, 1.6f);
 
@@ -279,7 +289,7 @@ public final class KartPhysics {
             mult = FIRE_MULT[Math.min(s.fireLevel, 3)];
         }
         if (s.sacred) {
-            int tier = Mth.clamp(s.sacredTier, 1, 4);
+            int tier = Mth.clamp(s.sacredTier, 1, TIER_BLUE3);
             mult = Math.max(mult, s.chainBonus ? SACRED_TIER_CHAIN[tier] : SACRED_TIER_MULT[tier]);
         }
         if (s.superTicks > 0) {
@@ -394,13 +404,18 @@ public final class KartPhysics {
     /** Bloque Sacred Pad: Sacred Fire azul, reservas y la animacion del Sacred Fire. */
     private static void padCheck(AbstractHorse horse, KartState s) {
         BlockPos below = new BlockPos(Mth.floor(horse.getX()), Mth.floor(horse.getY() - 0.1), Mth.floor(horse.getZ()));
-        boolean onPad = horse.level().getBlockState(below).getBlock() == KartBlocks.SACRED_PAD;
-        if (onPad && s.padOffTicks >= PAD_REARM_TICKS) {
-            addEnergy(s, PAD_ENERGY);
-            grantSacred(s, 4);
+        int padTier = KartBlocks.padTier(horse.level().getBlockState(below).getBlock()); // 0 = no es un pad
+        // Se activa al entrar, o si pasas a un pad de mayor nivel sin salir (tiras de pads mezcladas)
+        if (padTier > 0 && (s.padOffTicks >= PAD_REARM_TICKS || padTier > s.padTier)) {
+            addEnergy(s, PAD_ENERGY); // las mismas reservas en todos los niveles
+            grantSacred(s, padTier);
+            s.padTier = padTier;
             sacredBurst(horse, s); // sonido, explosion, wheelie y motor, como un Sacred Fire
         }
-        s.padOffTicks = onPad ? 0 : Math.min(1000, s.padOffTicks + 1);
+        s.padOffTicks = padTier > 0 ? 0 : Math.min(1000, s.padOffTicks + 1);
+        if (s.padOffTicks >= PAD_REARM_TICKS) {
+            s.padTier = 0;
+        }
     }
 
     /**
@@ -458,7 +473,8 @@ public final class KartPhysics {
     }
 
     private static DustParticleOptions sacredDust(int tier) {
-        return tier >= 4 ? FIRE_BLUE : tier == 3 ? FIRE_GOLD : tier == 2 ? FIRE_YELLOW : FIRE_RED;
+        return tier >= TIER_BLUE3 ? FIRE_BLUE_3 : tier == TIER_BLUE2 ? FIRE_BLUE_2 : tier == TIER_BLUE1 ? FIRE_BLUE
+                : tier == 3 ? FIRE_GOLD : tier == 2 ? FIRE_YELLOW : FIRE_RED;
     }
 
     private static ParticleOptions sacredFlame(int tier) {
@@ -467,9 +483,10 @@ public final class KartPhysics {
 
     private static void sacredBurst(AbstractHorse horse, KartState s) {
         s.sacredEvents++;
-        int tier = Mth.clamp(s.sacredTier, 1, 4);
+        int tier = Mth.clamp(s.sacredTier, 1, TIER_BLUE3);
         DustParticleOptions dust = sacredDust(tier);
         ParticleOptions flame = tier >= 4 ? ParticleTypes.SOUL_FIRE_FLAME : ParticleTypes.FLAME;
+        int count = tier >= TIER_BLUE3 ? 20 : tier == TIER_BLUE2 ? 16 : 10; // Blue Fire 2 y 3: explosion mas grande
         Level level = horse.level();
         RandomSource r = horse.getRandom();
         sfx(horse, KartSounds.nextSacred(), 0.9f, 1.0f); // uno de los 3 sonidos, alternando
@@ -477,12 +494,15 @@ public final class KartPhysics {
         for (int side = -1; side <= 1; side += 2) {
             Vec3 e = local(horse, s, yaw, EXHAUST_BACK, side * EXHAUST_SIDE, EXHAUST_Y);
             level.addParticle(ParticleTypes.EXPLOSION, e.x, e.y, e.z, 0, 0, 0);
-            for (int i = 0; i < 10; i++) {
+            for (int i = 0; i < count; i++) {
                 double vx = (r.nextDouble() - 0.5) * 0.3;
                 double vy = 0.05 + r.nextDouble() * 0.1;
                 double vz = (r.nextDouble() - 0.5) * 0.3;
                 level.addParticle(dust, e.x, e.y, e.z, vx, vy, vz);
                 level.addParticle(flame, e.x, e.y, e.z, vx, vy, vz);
+                if (tier >= TIER_BLUE2 && i % 2 == 0) {
+                    level.addParticle(ParticleTypes.ELECTRIC_SPARK, e.x, e.y, e.z, vx * 1.5, vy, vz * 1.5);
+                }
             }
         }
     }
@@ -518,10 +538,11 @@ public final class KartPhysics {
         }
         if (s.sacred || s.boostTicks > 0) {
             // Colores bien distintos: rojo (1), amarillo (2), amarillo potenciado (3), azul (4)
-            int fl = s.sacred ? Mth.clamp(s.sacredTier, 1, 4) : s.fireLevel;
+            int fl = s.sacred ? Mth.clamp(s.sacredTier, 1, TIER_BLUE3) : s.fireLevel;
             ParticleOptions color = sacredDust(fl);
             ParticleOptions flame = sacredFlame(fl);
-            int n = s.sacred ? (fl >= 3 ? 3 : 2) : Math.max(1, s.fireLevel);
+            int n = !s.sacred ? Math.max(1, s.fireLevel)
+                    : fl >= TIER_BLUE3 ? 5 : fl == TIER_BLUE2 ? 4 : fl >= 3 ? 3 : 2;
             for (int side = -1; side <= 1; side += 2) {
                 Vec3 e = local(horse, s, bodyYaw, EXHAUST_BACK, side * EXHAUST_SIDE, EXHAUST_Y);
                 for (int i = 0; i < n; i++) {
@@ -530,6 +551,19 @@ public final class KartPhysics {
                     double pz = e.z + (r.nextDouble() - 0.5) * 0.06;
                     level.addParticle(color, px, py, pz, ox * 0.18, 0.01, oz * 0.18);
                     level.addParticle(flame, px, py, pz, ox * 0.18, 0.01, oz * 0.18);
+                }
+            }
+        }
+        if (s.sacred && s.sacredTier >= TIER_BLUE2) { // Blue Fire 2 y 3: chispas en cada escape (nivel 3: el doble y destellos)
+            int sparks = s.sacredTier >= TIER_BLUE3 ? 2 : 1;
+            for (int side = -1; side <= 1; side += 2) {
+                Vec3 e = local(horse, s, bodyYaw, EXHAUST_BACK, side * EXHAUST_SIDE, EXHAUST_Y);
+                for (int i = 0; i < sparks; i++) {
+                    level.addParticle(ParticleTypes.ELECTRIC_SPARK, e.x, e.y, e.z,
+                            ox * 0.1 + (r.nextDouble() - 0.5) * 0.08, 0.05, oz * 0.1 + (r.nextDouble() - 0.5) * 0.08);
+                }
+                if (s.sacredTier >= TIER_BLUE3 && horse.tickCount % 2 == 0) {
+                    level.addParticle(ParticleTypes.END_ROD, e.x, e.y, e.z, ox * 0.12, 0.03, oz * 0.12);
                 }
             }
         }
@@ -566,7 +600,13 @@ public final class KartPhysics {
         StringBuilder sb = new StringBuilder();
         if (s.sacred) {
             String tierCol = s.sacredTier >= 4 ? "§9" : s.sacredTier == 3 ? "§6" : s.sacredTier == 2 ? "§e" : "§c";
-            sb.append(tierCol).append("§lSACRED FIRE").append(s.sacredTier == 3 ? "+" : "").append("§r ");
+            sb.append(tierCol).append("§lSACRED FIRE").append(s.sacredTier == 3 ? "+" : "");
+            if (s.sacredTier == TIER_BLUE2) {
+                sb.append(" §b§lII");
+            } else if (s.sacredTier >= TIER_BLUE3) {
+                sb.append(" §b§lIII");
+            }
+            sb.append("§r ");
             int stars = s.chainBonus ? 3 : (s.strikeCount > 0 ? (s.strikeChained[2] ? 2 : 1) : 0);
             if (stars > 0) { // memoria de Sacred Fire seguidos
                 sb.append("§6").append("★".repeat(stars)).append("§8").append("☆".repeat(3 - stars)).append("§r ");
