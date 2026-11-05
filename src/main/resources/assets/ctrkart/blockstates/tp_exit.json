@@ -1,0 +1,9 @@
+{
+ "multipart": [
+  {
+   "apply": {
+    "model": "ctrkart:block/tp_exit"
+   }
+  }
+ ]
+}
