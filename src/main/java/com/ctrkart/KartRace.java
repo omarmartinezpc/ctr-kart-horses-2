@@ -70,6 +70,7 @@ public final class KartRace {
     }
 
     public static void tick(ServerLevel level) {
+        KartCheckpoints.tickSync(level);
         for (ServerPlayer p : level.players()) {
             UUID id = p.getUUID();
             Entity v = p.getVehicle();

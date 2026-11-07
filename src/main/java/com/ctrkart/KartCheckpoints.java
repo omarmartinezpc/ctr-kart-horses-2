@@ -7,7 +7,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import net.fabricmc.fabric.api.entity.event.v1.ServerEntityWorldChangeEvents;
+import java.util.UUID;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking;
@@ -22,6 +22,7 @@ import net.minecraft.world.level.storage.LevelResource;
  */
 public final class KartCheckpoints {
     private static final Map<String, List<CpBox>> BY_DIM = new HashMap<>();
+    private static final Map<UUID, String> SENT = new HashMap<>(); // dimension a la que se envio la lista a cada jugador
     private static Path file;
 
     private KartCheckpoints() {}
@@ -29,7 +30,6 @@ public final class KartCheckpoints {
     public static void register() {
         ServerLifecycleEvents.SERVER_STARTED.register(KartCheckpoints::load);
         ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> sendTo(handler.getPlayer()));
-        ServerEntityWorldChangeEvents.AFTER_PLAYER_CHANGE_WORLD.register((player, origin, destination) -> sendTo(player));
     }
 
     private static String dim(ServerLevel level) {
@@ -72,10 +72,21 @@ public final class KartCheckpoints {
         }
     }
 
+    /** Cada tick: si un jugador cambio de dimension (o acaba de entrar), se le envia la lista de su dimension. */
+    public static void tickSync(ServerLevel level) {
+        String d = dim(level);
+        for (ServerPlayer p : level.players()) {
+            if (!d.equals(SENT.get(p.getUUID()))) {
+                sendTo(p);
+            }
+        }
+    }
+
     public static void sendTo(ServerPlayer p) {
         if (!(p.level() instanceof ServerLevel level)) {
             return;
         }
+        SENT.put(p.getUUID(), dim(level));
         List<Integer> data = new ArrayList<>();
         for (CpBox b : BY_DIM.getOrDefault(dim(level), List.of())) {
             b.writeTo(data);
@@ -85,6 +96,7 @@ public final class KartCheckpoints {
 
     private static void load(MinecraftServer server) {
         BY_DIM.clear();
+        SENT.clear();
         try {
             file = server.getWorldPath(LevelResource.ROOT).resolve("ctrkart_cp.txt");
             int n = 0;

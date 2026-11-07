@@ -2,6 +2,7 @@ package com.ctrkart.client;
 
 import com.ctrkart.CpBox;
 import com.ctrkart.KartCpItems;
+import com.ctrkart.KartBlocks;
 import com.ctrkart.KartCpPayload;
 import com.ctrkart.KartModClient;
 import com.ctrkart.KartPhysics;
@@ -31,7 +32,7 @@ import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.animal.equine.AbstractHorse; // si no existe: ...animal.horse.AbstractHorse
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
@@ -184,15 +185,15 @@ public final class KartCpClient {
             CpBox b = list.get(i);
             BlockState st = colorOf(b);
             if (sel != null && sel.box().equals(b)) {
-                st = eraser ? Blocks.RED_STAINED_GLASS.defaultBlockState() : Blocks.YELLOW_STAINED_GLASS.defaultBlockState();
+                st = eraser ? glass("red") : glass("yellow");
             }
             show("cp" + i, st, b.x1() - 0.003, b.y1() - 0.003, b.z1() - 0.003, b.size(0) + 0.006f, b.size(1) + 0.006f, b.size(2) + 0.006f, keep);
         }
         // el bloque de la mira (sin hitbox y sin reemplazar nada: es solo una imagen)
-        show("ghost", Blocks.LIGHT_GRAY_STAINED_GLASS.defaultBlockState(), ghost.getX() - 0.002, ghost.getY() - 0.002, ghost.getZ() - 0.002, 1.004f, 1.004f, 1.004f, keep);
+        show("ghost", glass("light_gray"), ghost.getX() - 0.002, ghost.getY() - 0.002, ghost.getZ() - 0.002, 1.004f, 1.004f, 1.004f, keep);
         if (wand && uiCornerSet) { // vista previa del checkpoint que se va a crear
             CpBox pv = CpBox.of(uiNumber, uiCorner, ghost);
-            show("preview", Blocks.LIME_STAINED_GLASS.defaultBlockState(), pv.x1() - 0.004, pv.y1() - 0.004, pv.z1() - 0.004,
+            show("preview", glass("lime"), pv.x1() - 0.004, pv.y1() - 0.004, pv.z1() - 0.004,
                     pv.size(0) + 0.008f, pv.size(1) + 0.008f, pv.size(2) + 0.008f, keep);
         }
         Iterator<Map.Entry<String, Disp>> it = DISPLAYS.entrySet().iterator();
@@ -221,9 +222,47 @@ public final class KartCpClient {
 
     private static BlockState colorOf(CpBox b) {
         if (b.isFree()) {
-            return Blocks.GREEN_STAINED_GLASS.defaultBlockState();
+            return glass("green");
         }
-        return (b.number() == 0 ? Blocks.WHITE_STAINED_GLASS : Blocks.PURPLE_STAINED_GLASS).defaultBlockState();
+        return glass(b.number() == 0 ? "white" : "purple");
+    }
+
+    private static final Map<String, BlockState> GLASS = new HashMap<>();
+
+    /**
+     * Cristal tintado de ese color. Las constantes Blocks.RED_STAINED_GLASS... no existen en esta version, asi que se
+     * busca en el registro por nombre (red_stained_glass). Si no hay, se usa el cristal normal y, por ultimo, el bloque TP.
+     */
+    private static BlockState glass(String color) {
+        BlockState st = GLASS.get(color);
+        if (st != null) {
+            return st;
+        }
+        Block found = null;
+        Block plain = null;
+        List<String> seen = new ArrayList<>();
+        for (Block b : BuiltInRegistries.BLOCK) {
+            Identifier id = BuiltInRegistries.BLOCK.getKey(b);
+            if (id == null) {
+                continue;
+            }
+            String path = id.getPath();
+            if (path.equals(color + "_stained_glass")) {
+                found = b;
+            } else if (path.equals("glass")) {
+                plain = b;
+            }
+            if (path.contains("glass")) {
+                seen.add(path);
+            }
+        }
+        if (found == null) {
+            System.err.println("[ctrkart] Checkpoints: no hay " + color + "_stained_glass; bloques con 'glass': " + seen);
+        }
+        Block use = found != null ? found : plain != null ? plain : KartBlocks.TP_ENTRY;
+        st = use.defaultBlockState();
+        GLASS.put(color, st);
+        return st;
     }
 
     // ------------------------------------------------------------------ cajas (block displays locales)
