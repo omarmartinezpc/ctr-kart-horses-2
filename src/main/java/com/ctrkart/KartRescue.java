@@ -36,7 +36,8 @@ public final class KartRescue {
 
     private static int phase;
     private static int t;
-    private static int held;      // ticks con ESPACIO mantenido durante la bajada
+    private static int charge;    // carga de la barra (0..3 barras): sube con ESPACIO mantenido y baja al soltarlo
+    private static int lastBars;
     private static int endWait;
     public static int horseId;
     private static double ty;
@@ -48,7 +49,8 @@ public final class KartRescue {
         active = true;
         phase = PHASE_HOVER;
         t = 0;
-        held = 0;
+        charge = 0;
+        lastBars = 0;
         endWait = 0;
         horseId = horse.getId();
         KartRescue.ty = ty;
@@ -77,7 +79,7 @@ public final class KartRescue {
         active = false;
         horse.noPhysics = false;
         if (s != null) {
-            KartPhysics.rescueLanding(horse, s, Math.min(3, held / KartPhysics.TIER_TICKS), yaw);
+            KartPhysics.rescueLanding(horse, s, bars(), yaw);
         }
         horse.setYRot(yaw);
         KartPhysics.sfx(horse, SoundEvents.EXPERIENCE_ORB_PICKUP, 0.9f, 1.2f);
@@ -127,9 +129,16 @@ public final class KartRescue {
                 }
                 break;
             case PHASE_DESCEND:
+                // la barra se llena mientras mantienes ESPACIO y se vacia (mas rapido) al soltarlo
                 if (jump) {
-                    held++;
+                    charge = Math.min(3 * KartPhysics.TIER_TICKS, charge + 1);
+                } else {
+                    charge = Math.max(0, charge - 2);
                 }
+                if (bars() > lastBars) {
+                    KartPhysics.sfx(horse, SoundEvents.EXPERIENCE_ORB_PICKUP, 0.8f, 0.8f + 0.3f * bars());
+                }
+                lastBars = bars();
                 vy = -Math.min(DESCEND_SPEED, Math.max(0.0, horse.getY() - ty));
                 if (horse.getY() - ty <= 1.0e-3) {
                     phase = PHASE_LANDED;
@@ -145,21 +154,36 @@ public final class KartRescue {
         }
         horse.setDeltaMovement(0, vy, 0);
         particles(horse);
-        if (t % 2 == 0) {
-            hud();
-        }
+        hud();
         return true;
     }
 
+    /** Barras completas (0..3): decide el turbo al aterrizar (1 rojo, 2 amarillo, 3 Sacred Fire; 0 = nada). */
+    private static int bars() {
+        return Math.min(3, charge / KartPhysics.TIER_TICKS);
+    }
+
+    /** Un tramo de la barra: vacio, lleno (con su color) o a medias (se va llenando poco a poco). */
+    private static String segment(int i, String color) {
+        int c = charge - i * KartPhysics.TIER_TICKS;
+        if (c <= 0) {
+            return "§8▯";
+        }
+        if (c >= KartPhysics.TIER_TICKS) {
+            return color + "▮";
+        }
+        String[] partial = {"▏", "▎", "▍", "▌", "▋", "▊", "▉"};
+        return color + partial[Math.min(partial.length - 1, c * partial.length / KartPhysics.TIER_TICKS)];
+    }
+
     private static void hud() {
-        int bars = Math.min(3, held / KartPhysics.TIER_TICKS);
         StringBuilder sb = new StringBuilder("§d§lRESCATE§r");
         if (phase >= PHASE_DESCEND) {
-            sb.append(" §7| §fMantén ESPACIO para cargar §7[")
-                    .append(bars >= 1 ? "§c▮" : "§8▯")
-                    .append(bars >= 2 ? "§e▮" : "§8▯")
-                    .append(bars >= 3 ? "§9▮" : "§8▯")
-                    .append("§7]");
+            sb.append(" §7| §fMantén ESPACIO §7[ ")
+                    .append(segment(0, "§c")).append(segment(1, "§e")).append(segment(2, "§9"))
+                    .append(" §7]");
+        } else {
+            sb.append(" §7| §8prepara ESPACIO para la bajada");
         }
         KartPhysics.HUD.accept(Component.literal(sb.toString()));
     }
@@ -221,7 +245,7 @@ public final class KartRescue {
                     level.addParticle(rainbow(k / 6.0 + t * 0.02, 1.4f),
                             c.x + Math.cos(ang) * 1.5, c.y + 0.2 + k * 0.4, c.z + Math.sin(ang) * 1.5, 0, 0, 0);
                 }
-                if (phase == PHASE_DESCEND && held > 0 && t % 2 == 0) { // al cargar: chispas
+                if (phase == PHASE_DESCEND && charge > 0 && t % 2 == 0) { // al cargar: chispas
                     level.addParticle(ParticleTypes.ELECTRIC_SPARK, c.x, c.y + 0.4, c.z, 0, 0.05, 0);
                 }
                 break;

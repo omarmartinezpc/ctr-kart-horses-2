@@ -715,6 +715,21 @@ public final class KartPhysics {
         HUD.accept(Component.literal(sb.toString()));
     }
 
+    /** El kart se coloca en otro sitio mirando a "yaw", parado (la carrera empieza ahi). No toca reservas ni turbos. */
+    public static void placeAt(AbstractHorse horse, KartState s, double y, float yaw) {
+        onTeleported(s, y);
+        s.moveYaw = yaw;
+        s.bodyOffset = 0f;
+        s.speed = 0;
+        s.drifting = false;
+        s.pending = 0;
+        s.charge = 0;
+        s.hopAir = false;
+        s.uTurn = false;
+        horse.setYRot(yaw);
+        horse.setDeltaMovement(0, 0, 0);
+    }
+
     /** Ser rescatado quita todo: reservas, Sacred Fire (cualquier nivel), turbos, Super Motor y la memoria de Sacred Fire. */
     public static void loseBoosts(KartState s) {
         s.energy = 0;

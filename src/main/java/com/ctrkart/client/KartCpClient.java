@@ -144,6 +144,22 @@ public final class KartCpClient {
                 }
                 break;
             }
+            case KartCpPayload.PLACE: {
+                if (mc.level == null || d.size() < 5) {
+                    break;
+                }
+                Entity e = mc.level.getEntity(d.get(0));
+                if (e instanceof AbstractHorse horse) {
+                    KartPhysics.tpEffect(horse);
+                    KartModClient.moveKart(horse, d.get(1) / 1000.0, d.get(2) / 1000.0, d.get(3) / 1000.0);
+                    KartState st = KartTracker.get(horse.getId());
+                    if (st != null) {
+                        KartPhysics.placeAt(horse, st, d.get(2) / 1000.0, d.get(4) / 10.0f);
+                    }
+                    KartPhysics.tpEffect(horse);
+                }
+                break;
+            }
             case KartCpPayload.RESCUE_END: {
                 if (mc.level == null || !KartRescue.active) {
                     break;

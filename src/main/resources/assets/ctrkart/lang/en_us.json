@@ -8,5 +8,7 @@
  "block.ctrkart.tp_exit": "Teleport Exit (right-click to set number)",
  "item.ctrkart.checkpoint_wand": "Checkpoint Wand (create / edit)",
  "item.ctrkart.checkpoint_eraser": "Checkpoint Eraser (delete)",
- "item.ctrkart.rescue_point": "Rescue"
+ "item.ctrkart.rescue_point": "Rescue",
+ "item.ctrkart.race_wheel": "Race Wheel (right-click: start race)",
+ "item.ctrkart.race_wheel_on": "Race Wheel (ACTIVE, right-click: stop)"
 }
