@@ -3,6 +3,7 @@ package com.ctrkart;
 import java.lang.reflect.Method;
 import com.ctrkart.client.KartCamera;
 import com.ctrkart.client.KartClientCommands;
+import com.ctrkart.client.KartCpClient;
 import com.ctrkart.client.KartRenderLayers;
 import com.ctrkart.client.KartVisuals;
 import net.fabricmc.api.ClientModInitializer;
@@ -30,13 +31,18 @@ public class KartModClient implements ClientModInitializer {
             KartTracker.clientTick++;
             KartVisuals.tick(client);
             KartCamera.tick(client);
+            KartCpClient.tick(client);
         });
         ClientPlayNetworking.registerGlobalReceiver(KartSyncPayload.TYPE,
                 (payload, context) -> KartTracker.apply(payload)); // Fabric ya lo ejecuta en el hilo principal
         ClientPlayNetworking.registerGlobalReceiver(KartEnergyPayload.TYPE,
                 (payload, context) -> KartTracker.addEnergy(payload.entityId(), payload.amount()));
         ClientPlayNetworking.registerGlobalReceiver(KartTpPayload.TYPE, (payload, context) -> handleTp(payload));
-        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> KartTracker.clear());
+        ClientPlayNetworking.registerGlobalReceiver(KartCpPayload.TYPE, (payload, context) -> KartCpClient.handle(payload));
+        ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+            KartTracker.clear();
+            KartCpClient.clear();
+        });
     }
 
     /** Mensajes y teletransporte de los bloques TP (ver KartTeleport). */
@@ -58,21 +64,27 @@ public class KartModClient implements ClientModInitializer {
             return;
         }
         KartPhysics.tpEffect(horse); // en el origen
-        double dx = p.x() - horse.getX();
-        double dy = p.y() - horse.getY();
-        double dz = p.z() - horse.getZ();
-        horse.setPos(p.x(), p.y(), p.z());
-        horse.setOldPosAndRot(); // sin que la imagen "viaje" entre los dos sitios
-        net.minecraft.world.entity.player.Player player = mc.player;
-        if (player != null && player.getVehicle() == horse) {
-            player.setPos(player.getX() + dx, player.getY() + dy, player.getZ() + dz);
-            player.setOldPosAndRot();
-        }
+        moveKart(horse, p.x(), p.y(), p.z());
         KartState st = KartTracker.get(horse.getId());
         if (st != null) {
             KartPhysics.onTeleported(st, p.y()); // reservas, turbo, velocidad y direccion NO se tocan
         }
         KartPhysics.tpEffect(horse); // en el destino
+    }
+
+    /** Coloca al kart (y al jugador que lo conduce) en otro sitio sin que la imagen "viaje" entre los dos puntos. */
+    public static void moveKart(net.minecraft.world.entity.animal.equine.AbstractHorse horse, double x, double y, double z) {
+        Minecraft mc = Minecraft.getInstance();
+        double dx = x - horse.getX();
+        double dy = y - horse.getY();
+        double dz = z - horse.getZ();
+        horse.setPos(x, y, z);
+        horse.setOldPosAndRot();
+        net.minecraft.world.entity.player.Player player = mc.player;
+        if (player != null && player.getVehicle() == horse) {
+            player.setPos(player.getX() + dx, player.getY() + dy, player.getZ() + dz);
+            player.setOldPosAndRot();
+        }
     }
 
     private static long windowHandle;
@@ -147,7 +159,7 @@ public class KartModClient implements ClientModInitializer {
     }
 
     /** Escribe en la barra de accion. El nombre del metodo cambio en 26.x, asi que se busca por reflexion. */
-    private static void showOverlay(Component text) {
+    public static void showOverlay(Component text) {
         Minecraft mc = Minecraft.getInstance();
         if (!searched) {
             searched = true;

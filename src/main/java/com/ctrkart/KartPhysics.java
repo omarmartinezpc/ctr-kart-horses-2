@@ -152,6 +152,9 @@ public final class KartPhysics {
             s.needsReset = false;
         }
         s.lastTick = now;
+        if (KartRescue.active && KartRescue.tick(horse, rider, s)) {
+            return; // durante el rescate el kart no se conduce: lo mueve la animacion
+        }
 
         // Choque real contra pared: solo si el kart intento avanzar y casi no se movio ni subio.
         // Asi subir bloques/escalones no quita velocidad.
@@ -705,7 +708,37 @@ public final class KartPhysics {
                 }
             }
         }
+        if (KartRescue.raceStarted) {
+            sb.append(" §7| §fVuelta §l").append(KartRescue.raceLap + 1)
+                    .append("§r §7| §fCP §l").append(KartRescue.raceIdx).append("§r§7/").append(Math.max(0, KartRescue.raceTotal - 1));
+        }
         HUD.accept(Component.literal(sb.toString()));
+    }
+
+    /**
+     * Fin del rescate: el kart sale mirando hacia el siguiente checkpoint. Las barras cargadas con ESPACIO durante la bajada
+     * dan su recompensa: 3 barras = Sacred Fire; 1 o 2 = turbo rojo / amarillo. Ademas arranca con algo de velocidad.
+     */
+    static void rescueLanding(AbstractHorse horse, KartState s, int bars, float yaw) {
+        s.moveYaw = yaw;
+        s.bodyOffset = 0f;
+        s.drifting = false;
+        s.driftGrounded = false;
+        s.pending = 0;
+        s.charge = 0;
+        s.hopAir = false;
+        s.airTicks = 0;
+        s.uTurn = false;
+        s.hasLast = false;
+        s.airMaxY = horse.getY();
+        if (bars >= 3) {
+            driftStrike(horse, s);
+        } else if (bars > 0) {
+            s.fireLevel = s.boostTicks > 0 ? Math.max(s.fireLevel, bars) : bars;
+            s.boostTicks = Math.min(BOOST_CAP, s.boostTicks + TURBO_TICKS_PER_LEVEL * bars);
+            sfx(horse, SoundEvents.FIREWORK_ROCKET_LAUNCH, 0.8f, 1.0f);
+        }
+        s.speed = Math.max(s.speed, 0.30 + 0.12 * bars);
     }
 
     /** Efecto de un teletransporte (se llama en el origen y en el destino). */
@@ -727,7 +760,7 @@ public final class KartPhysics {
         s.airTicks = 0;
     }
 
-    private static void sfx(AbstractHorse h, SoundEvent e, float volume, float pitch) {
+    static void sfx(AbstractHorse h, SoundEvent e, float volume, float pitch) {
         h.level().playLocalSound(h.getX(), h.getY(), h.getZ(), e, SoundSource.NEUTRAL, volume, pitch, false);
     }
 }
