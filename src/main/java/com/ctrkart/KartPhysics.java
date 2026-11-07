@@ -715,6 +715,26 @@ public final class KartPhysics {
         HUD.accept(Component.literal(sb.toString()));
     }
 
+    /** Ser rescatado quita todo: reservas, Sacred Fire (cualquier nivel), turbos, Super Motor y la memoria de Sacred Fire. */
+    public static void loseBoosts(KartState s) {
+        s.energy = 0;
+        s.sacred = false;
+        s.sacredTier = 0;
+        s.chainBonus = false;
+        s.boostTicks = 0;
+        s.fireLevel = 0;
+        s.superTicks = 0;
+        s.strikeCount = 0;
+        java.util.Arrays.fill(s.strikeChained, false);
+        s.sacredReady = false;
+        s.sacredWindow = 0;
+        s.sacredFailed = false;
+        s.failSmokeTicks = 0;
+        s.drifting = false;
+        s.pending = 0;
+        s.charge = 0;
+    }
+
     /**
      * Fin del rescate: el kart sale mirando hacia el siguiente checkpoint. Las barras cargadas con ESPACIO durante la bajada
      * dan su recompensa: 3 barras = Sacred Fire; 1 o 2 = turbo rojo / amarillo. Ademas arranca con algo de velocidad.

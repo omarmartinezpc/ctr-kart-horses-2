@@ -41,10 +41,12 @@ public final class KartRace {
     static final int RESCUE_LIFT_TICKS = 30;
     static final double RESCUE_SKY = 24.0;     // altura sobre el destino desde la que baja
     static final int RESCUE_PAUSE_TICKS = 40;  // tras el rescate: sin comprobaciones
+    static final double RESCUE_COLLIDE_HEIGHT = 1.0; // a esta altura sobre el bloque de Rescate vuelven las colisiones
 
     private static final class Rescue {
         long startTick;
         boolean warped;
+        boolean collide; // true = ya se recupero la colision
         long warpTick;
         double tx, ty, tz;
     }
@@ -301,7 +303,8 @@ public final class KartRace {
                 yaw = (float) Math.toDegrees(Math.atan2(-(nc.x - c.x), nc.z - c.z));
             }
         }
-        horse.noPhysics = true; // sin colisiones mientras dura el rescate (en el servidor y en el cliente)
+        horse.noPhysics = true; // sin colisiones mientras dura el rescate (se recuperan a 1 bloque sobre el bloque de Rescate)
+        KartMod.clearSuper(horse.getUUID()); // y se pierde el Super Motor
         horse.setDeltaMovement(Vec3.ZERO);
         List<Integer> d = List.of(horse.getId(), (int) Math.round(r.tx * 1000), (int) Math.round(r.ty * 1000),
                 (int) Math.round(r.tz * 1000), Math.round(yaw * 10));
@@ -321,6 +324,10 @@ public final class KartRace {
                 ServerPlayNetworking.send(p, new KartCpPayload(KartCpPayload.RESCUE_WARP, d));
             }
             return;
+        }
+        if (!r.collide && horse.getY() <= r.ty + RESCUE_COLLIDE_HEIGHT) {
+            r.collide = true;
+            horse.noPhysics = false; // el ultimo bloque de la bajada ya choca con el suelo
         }
         boolean landed = horse.getY() <= r.ty + 0.6;
         boolean timeout = now - r.warpTick > 20 * 15;

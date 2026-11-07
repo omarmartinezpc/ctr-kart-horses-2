@@ -54,6 +54,10 @@ public final class KartRescue {
         KartRescue.ty = ty;
         yaw = yawDeg;
         horse.noPhysics = true;
+        KartState st = KartTracker.get(horse.getId());
+        if (st != null) {
+            KartPhysics.loseBoosts(st); // al ser rescatado se pierde todo
+        }
         KartPhysics.sfx(horse, SoundEvents.BEACON_ACTIVATE, 1.0f, 1.4f);
     }
 
@@ -98,7 +102,8 @@ public final class KartRescue {
         s.speed = 0;
         s.drifting = false;
         s.moveYaw = yaw;
-        horse.noPhysics = true;
+        // sin colision durante todo el rescate, hasta estar a 1 bloque de altura del bloque de Rescate
+        horse.noPhysics = !(phase >= PHASE_DESCEND && horse.getY() - ty <= KartRace.RESCUE_COLLIDE_HEIGHT);
         horse.setYRot(yaw);
         boolean jump = ((LivingEntityAccessor) rider).ctrkart$isJumping();
 

@@ -35,8 +35,9 @@ import net.minecraft.world.phys.Vec3;
  *
  * CREACION (click derecho):
  *  - Marca una esquina en el bloque de la mira (a 4 bloques); con la 2a esquina se crea el checkpoint.
- *  - Si miras un checkpoint ya creado (se ve amarillo) y no tienes una esquina marcada, el click lo ESTIRA: la cara hacia
- *    la que miras se mueve hasta donde esta el bloque de la mira.
+ *  - Si miras un checkpoint ya creado (se ve amarillo) y no tienes una esquina marcada, ESTIRARLO lleva dos clicks:
+ *    1) click en la cara que quieres mover; 2) click a la distancia a la que quieres estirarla (el bloque de la mira
+ *    marca hasta donde llega; se ve una vista previa). Agachado + click cancela.
  *  - Agachado: con una esquina marcada la cancela; si no, cambia el numero (+1; de 100 pasa a "libre", y de libre a 0).
  *  - El numero tambien se puede poner con  /kartcp <0-100>  o  /kartcp libre.
  *  - Agachado + click sobre un checkpoint ya creado: le pone el numero elegido (con aviso).
@@ -52,6 +53,11 @@ public final class KartCpItems {
     private static final double PICK_DIST = 80.0; // hasta donde se "selecciona" un checkpoint con la mira
     private static final Map<UUID, Integer> NUMBER = new HashMap<>();
     private static final Map<UUID, BlockPos> CORNER = new HashMap<>();
+
+    /** Estirar en 2 pasos: 1) click en una cara del checkpoint; 2) click a la distancia deseada. Esto guarda el paso 1. */
+    private record Stretch(CpBox box, int axis, int side) {}
+
+    private static final Map<UUID, Stretch> STRETCH = new HashMap<>();
 
     private KartCpItems() {}
 
@@ -107,6 +113,18 @@ public final class KartCpItems {
         d.add(c == null ? 0 : c.getX());
         d.add(c == null ? 0 : c.getY());
         d.add(c == null ? 0 : c.getZ());
+        Stretch st = STRETCH.get(p.getUUID());
+        d.add(st == null ? 0 : 1);
+        if (st != null) {
+            d.add(st.box().x1());
+            d.add(st.box().y1());
+            d.add(st.box().z1());
+            d.add(st.box().x2());
+            d.add(st.box().y2());
+            d.add(st.box().z2());
+            d.add(st.axis());
+            d.add(st.side());
+        }
         ServerPlayNetworking.send(p, new KartCpPayload(KartCpPayload.UI, d));
     }
 
@@ -198,8 +216,12 @@ public final class KartCpItems {
 
         // ---------------------------------------------------------------- Creacion / edicion
         BlockPos corner = CORNER.get(id);
+        Stretch stretch = STRETCH.get(id);
         if (sp.isShiftKeyDown()) {
-            if (corner != null) {
+            if (stretch != null) {
+                STRETCH.remove(id);
+                sp.sendSystemMessage(Component.literal("§e[CP] Estirar cancelado."));
+            } else if (corner != null) {
                 CORNER.remove(id);
                 sp.sendSystemMessage(Component.literal("§e[CP] Esquina cancelada."));
             } else if (sel != null) { // shift + click en un checkpoint: recibe el numero elegido
@@ -216,17 +238,27 @@ public final class KartCpItems {
                 setNumber(sp, n == CpBox.MAX_NUMBER ? CpBox.FREE : n == CpBox.FREE ? 0 : n + 1);
                 return InteractionResult.SUCCESS;
             }
-        } else if (corner == null && sel != null) {
-            int axis = sel.axis();
-            int target = axis == 0 ? ghost.getX() : axis == 1 ? ghost.getY() : ghost.getZ();
-            CpBox stretched = sel.box().withBound(axis, sel.side(), target);
-            if (stretched == null) {
-                sp.sendSystemMessage(Component.literal("§c[CP] No se puede estirar hasta ahi."));
+        } else if (stretch != null) { // 2o click: a la distancia a la que esta el bloque de la mira
+            STRETCH.remove(id);
+            CpBox current = boxes.contains(stretch.box()) ? stretch.box() : null;
+            if (current == null) {
+                sp.sendSystemMessage(Component.literal("§c[CP] El checkpoint ya no existe o cambio; estirar cancelado."));
             } else {
-                KartCheckpoints.replace(level, sel.box(), stretched);
-                sp.sendSystemMessage(Component.literal("§e[CP] Checkpoint " + label(stretched.number()) + " estirado ("
-                        + stretched.size(0) + "x" + stretched.size(1) + "x" + stretched.size(2) + ")."));
+                int axis = stretch.axis();
+                int target = axis == 0 ? ghost.getX() : axis == 1 ? ghost.getY() : ghost.getZ();
+                CpBox stretched = current.withBound(axis, stretch.side(), target);
+                if (stretched == null) {
+                    sp.sendSystemMessage(Component.literal("§c[CP] No se puede estirar hasta ahi (la cara se pasaria al otro lado). Estirar cancelado."));
+                } else {
+                    KartCheckpoints.replace(level, current, stretched);
+                    sp.sendSystemMessage(Component.literal("§e[CP] Checkpoint " + label(stretched.number()) + " estirado ("
+                            + stretched.size(0) + "x" + stretched.size(1) + "x" + stretched.size(2) + ")."));
+                }
             }
+        } else if (corner == null && sel != null) { // 1er click: se elige la cara
+            STRETCH.put(id, new Stretch(sel.box(), sel.axis(), sel.side()));
+            sp.sendSystemMessage(Component.literal("§e[CP] Cara elegida del checkpoint " + label(sel.box().number())
+                    + ". Haz click a la distancia a la que quieres estirarlo (agachado + click cancela)."));
         } else if (corner == null) {
             CORNER.put(id, ghost);
             sp.sendSystemMessage(Component.literal("§a[CP] Esquina 1 marcada. Marca la esquina 2 para crear el checkpoint "

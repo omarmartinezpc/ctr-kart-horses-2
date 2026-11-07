@@ -51,6 +51,9 @@ public final class KartCpClient {
     private static int uiNumber;
     private static boolean uiCornerSet;
     private static BlockPos uiCorner = BlockPos.ZERO;
+    private static CpBox uiStretchBox;   // checkpoint cuya cara se eligio para estirar (null = nada elegido)
+    private static int uiStretchAxis;
+    private static int uiStretchSide;
 
     private static final class Disp {
         final Display.BlockDisplay entity;
@@ -102,6 +105,10 @@ public final class KartCpClient {
                     uiNumber = d.get(0);
                     uiCornerSet = d.get(1) != 0;
                     uiCorner = new BlockPos(d.get(2), d.get(3), d.get(4));
+                    boolean stretching = d.size() >= 14 && d.get(5) != 0;
+                    uiStretchBox = stretching ? new CpBox(CpBox.FREE, d.get(6), d.get(7), d.get(8), d.get(9), d.get(10), d.get(11)) : null;
+                    uiStretchAxis = stretching ? d.get(12) : 0;
+                    uiStretchSide = stretching ? d.get(13) : 0;
                 }
                 break;
             case KartCpPayload.RACE:
@@ -193,7 +200,8 @@ public final class KartCpClient {
         List<RescuePoint> pts = points;
 
         // lo que apuntas: un checkpoint (creacion / borrado) o un bloque de Rescate (rescate / borrado)
-        CpBox.Hit sel = (wand && uiCornerSet) || rescue ? null : CpBox.pick(list, eye, look, 80.0);
+        boolean stretching = wand && uiStretchBox != null;
+        CpBox.Hit sel = (wand && uiCornerSet) || rescue || stretching ? null : CpBox.pick(list, eye, look, 80.0);
         CpBox.Hit rsel = null;
         if (rescue || eraser) {
             List<CpBox> pb = new ArrayList<>();
@@ -216,6 +224,9 @@ public final class KartCpClient {
             BlockState st = colorOf(b);
             if (sel != null && sel.box().equals(b)) {
                 st = eraser ? glass("red") : glass("yellow");
+            }
+            if (stretching && sameBox(b, uiStretchBox)) {
+                st = glass("yellow"); // el checkpoint que se esta estirando
             }
             double e = 0.003;
             double sx = b.size(0) + 2 * e;
@@ -241,8 +252,15 @@ public final class KartCpClient {
         }
         // el bloque de la mira (sin hitbox y sin reemplazar nada: es solo una imagen)
         show("ghost", glass("light_gray"), ghost.getX() - 0.002, ghost.getY() - 0.002, ghost.getZ() - 0.002, 1.004f, 1.004f, 1.004f, keep);
+        CpBox pv = null;
         if (wand && uiCornerSet) { // vista previa del checkpoint que se va a crear
-            CpBox pv = CpBox.of(uiNumber, uiCorner, ghost);
+            pv = CpBox.of(uiNumber, uiCorner, ghost);
+        } else if (stretching) {   // vista previa del checkpoint ya estirado hasta el bloque de la mira
+            int axis = uiStretchAxis;
+            int target = axis == 0 ? ghost.getX() : axis == 1 ? ghost.getY() : ghost.getZ();
+            pv = uiStretchBox.withBound(axis, uiStretchSide, target);
+        }
+        if (pv != null) {
             double e = 0.004;
             double sx = pv.size(0) + 2 * e;
             double sy = pv.size(1) + 2 * e;
@@ -269,12 +287,19 @@ public final class KartCpClient {
                         : sel == null ? "mira un checkpoint o un bloque de Rescate" : "click: eliminar" + target);
             } else if (rescue) {
                 msg = "§d§lRESCATE §r§7| " + (rsel != null ? "click en una cara lateral: orientar" : "click: colocar dentro de un checkpoint");
+            } else if (stretching) {
+                msg = "§e§lESTIRAR §r§7| click a la distancia deseada (se ve la vista previa) §7| shift+click: cancelar";
             } else {
                 msg = "§b§lCHECKPOINT §f" + num + " §7| esquina " + (uiCornerSet ? "2/2" : "1/2")
                         + (sel != null ? target + " §7(click: estirar | shift+click: poner el numero " + num + ")" : " §7| shift+click: cambiar numero");
             }
             KartModClient.showOverlay(Component.literal(msg));
         }
+    }
+
+    /** Misma caja (el numero no cuenta: el servidor manda el estado de estirar sin el numero). */
+    private static boolean sameBox(CpBox a, CpBox b) {
+        return a.x1() == b.x1() && a.y1() == b.y1() && a.z1() == b.z1() && a.x2() == b.x2() && a.y2() == b.y2() && a.z2() == b.z2();
     }
 
     private static BlockState colorOf(CpBox b) {

@@ -60,6 +60,11 @@ public class KartMod implements ModInitializer {
     private static final Identifier RIDER_SCALE_ID = Identifier.fromNamespaceAndPath(MOD_ID, "rider_scale");
 
     private static final Map<UUID, Integer> SUPER = new ConcurrentHashMap<>(); // ticks restantes (servidor)
+
+    /** Quita el Super Motor de un kart (al ser rescatado). */
+    public static void clearSuper(UUID horseId) {
+        SUPER.remove(horseId);
+    }
     private static final Map<UUID, Integer> LAST_CLASS = new ConcurrentHashMap<>();
 
     @Override
