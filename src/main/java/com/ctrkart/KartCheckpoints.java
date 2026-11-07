@@ -22,6 +22,7 @@ import net.minecraft.world.level.storage.LevelResource;
  */
 public final class KartCheckpoints {
     private static final Map<String, List<CpBox>> BY_DIM = new HashMap<>();
+    private static final Map<String, List<RescuePoint>> POINTS_BY_DIM = new HashMap<>();
     private static final Map<UUID, String> SENT = new HashMap<>(); // dimension a la que se envio la lista a cada jugador
     private static Path file;
 
@@ -39,6 +40,35 @@ public final class KartCheckpoints {
     /** Copia de la lista de checkpoints de ese mundo. */
     public static List<CpBox> list(ServerLevel level) {
         return new ArrayList<>(BY_DIM.getOrDefault(dim(level), List.of()));
+    }
+
+    /** Copia de la lista de bloques de Rescate de ese mundo. */
+    public static List<RescuePoint> points(ServerLevel level) {
+        return new ArrayList<>(POINTS_BY_DIM.getOrDefault(dim(level), List.of()));
+    }
+
+    public static void addPoint(ServerLevel level, RescuePoint p) {
+        POINTS_BY_DIM.computeIfAbsent(dim(level), k -> new ArrayList<>()).add(p);
+        changed(level);
+    }
+
+    public static void removePoint(ServerLevel level, RescuePoint p) {
+        List<RescuePoint> l = POINTS_BY_DIM.get(dim(level));
+        if (l != null && l.remove(p)) {
+            changed(level);
+        }
+    }
+
+    public static void replacePoint(ServerLevel level, RescuePoint old, RescuePoint now) {
+        List<RescuePoint> l = POINTS_BY_DIM.get(dim(level));
+        if (l == null) {
+            return;
+        }
+        int i = l.indexOf(old);
+        if (i >= 0) {
+            l.set(i, now);
+            changed(level);
+        }
     }
 
     public static void add(ServerLevel level, CpBox box) {
@@ -92,10 +122,19 @@ public final class KartCheckpoints {
             b.writeTo(data);
         }
         ServerPlayNetworking.send(p, new KartCpPayload(KartCpPayload.SYNC, data));
+        List<Integer> pts = new ArrayList<>();
+        for (RescuePoint r : POINTS_BY_DIM.getOrDefault(dim(level), List.of())) {
+            pts.add(r.x());
+            pts.add(r.y());
+            pts.add(r.z());
+            pts.add(r.yaw());
+        }
+        ServerPlayNetworking.send(p, new KartCpPayload(KartCpPayload.POINTS, pts));
     }
 
     private static void load(MinecraftServer server) {
         BY_DIM.clear();
+        POINTS_BY_DIM.clear();
         SENT.clear();
         try {
             file = server.getWorldPath(LevelResource.ROOT).resolve("ctrkart_cp.txt");
@@ -103,7 +142,11 @@ public final class KartCheckpoints {
             if (Files.exists(file)) {
                 for (String line : Files.readAllLines(file)) {
                     String[] p = line.split("\t");
-                    if (p.length == 8) {
+                    if (p.length == 6 && p[1].equals("R")) { // bloque de Rescate: dim R x y z giro
+                        POINTS_BY_DIM.computeIfAbsent(p[0], k -> new ArrayList<>()).add(new RescuePoint(
+                                Integer.parseInt(p[2].trim()), Integer.parseInt(p[3].trim()), Integer.parseInt(p[4].trim()),
+                                Integer.parseInt(p[5].trim())));
+                    } else if (p.length == 8) {
                         BY_DIM.computeIfAbsent(p[0], k -> new ArrayList<>()).add(new CpBox(
                                 Integer.parseInt(p[1].trim()), Integer.parseInt(p[2].trim()), Integer.parseInt(p[3].trim()),
                                 Integer.parseInt(p[4].trim()), Integer.parseInt(p[5].trim()), Integer.parseInt(p[6].trim()),
@@ -128,6 +171,11 @@ public final class KartCheckpoints {
                 for (CpBox b : e.getValue()) {
                     lines.add(e.getKey() + "\t" + b.number() + "\t" + b.x1() + "\t" + b.y1() + "\t" + b.z1() + "\t"
                             + b.x2() + "\t" + b.y2() + "\t" + b.z2());
+                }
+            }
+            for (Map.Entry<String, List<RescuePoint>> e : POINTS_BY_DIM.entrySet()) {
+                for (RescuePoint r : e.getValue()) {
+                    lines.add(e.getKey() + "\tR\t" + r.x() + "\t" + r.y() + "\t" + r.z() + "\t" + r.yaw());
                 }
             }
             Files.write(file, lines);

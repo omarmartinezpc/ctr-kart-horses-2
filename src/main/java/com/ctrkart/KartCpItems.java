@@ -39,11 +39,15 @@ import net.minecraft.world.phys.Vec3;
  *    la que miras se mueve hasta donde esta el bloque de la mira.
  *  - Agachado: con una esquina marcada la cancela; si no, cambia el numero (+1; de 100 pasa a "libre", y de libre a 0).
  *  - El numero tambien se puede poner con  /kartcp <0-100>  o  /kartcp libre.
- * BORRADO (click derecho): elimina el checkpoint que miras (se ve rojo).
+ *  - Agachado + click sobre un checkpoint ya creado: le pone el numero elegido (con aviso).
+ * BORRADO (click derecho): elimina el checkpoint (se ve rojo) o el bloque de Rescate que miras.
+ * RESCATE (item rescue_point, click derecho): coloca un bloque de Rescate en el bloque de la mira, dentro de un checkpoint.
+ *  Click en una de sus caras laterales = lo orienta hacia esa cara: asi mira el kart al ser rescatado.
  */
 public final class KartCpItems {
     public static final Item WAND = register("checkpoint_wand");
     public static final Item ERASER = register("checkpoint_eraser");
+    public static final Item RESCUE = register("rescue_point");
 
     private static final double PICK_DIST = 80.0; // hasta donde se "selecciona" un checkpoint con la mira
     private static final Map<UUID, Integer> NUMBER = new HashMap<>();
@@ -71,6 +75,7 @@ public final class KartCpItems {
                         }))));
         add(WAND, "Checkpoint (creacion)", "checkpoint_wand");
         add(ERASER, "Checkpoint (borrado)", "checkpoint_eraser");
+        add(RESCUE, "Rescate", "rescue_point");
     }
 
     private static void add(Item item, String label, String id) {
@@ -105,9 +110,27 @@ public final class KartCpItems {
         ServerPlayNetworking.send(p, new KartCpPayload(KartCpPayload.UI, d));
     }
 
+    /** El bloque de Rescate (celda) que apunta la mira, o null. */
+    private static CpBox.Hit pickPoint(List<RescuePoint> pts, Vec3 eye, Vec3 look) {
+        List<CpBox> boxes = new ArrayList<>();
+        for (RescuePoint r : pts) {
+            boxes.add(r.box());
+        }
+        return CpBox.pick(boxes, eye, look, PICK_DIST);
+    }
+
+    private static RescuePoint pointAt(List<RescuePoint> pts, CpBox cell) {
+        for (RescuePoint r : pts) {
+            if (r.x() == cell.x1() && r.y() == cell.y1() && r.z() == cell.z1()) {
+                return r;
+            }
+        }
+        return null;
+    }
+
     private static InteractionResult click(Player player, Level world, InteractionHand hand) {
         Item item = player.getItemInHand(hand).getItem();
-        if (item != WAND && item != ERASER) {
+        if (item != WAND && item != ERASER && item != RESCUE) {
             return InteractionResult.PASS;
         }
         if (!(world instanceof ServerLevel level) || !(player instanceof ServerPlayer sp)) {
@@ -116,12 +139,56 @@ public final class KartCpItems {
         Vec3 eye = sp.getEyePosition();
         Vec3 look = sp.getLookAngle();
         BlockPos ghost = CpBox.ghost(eye, look);
-        CpBox.Hit sel = CpBox.pick(KartCheckpoints.list(level), eye, look, PICK_DIST);
+        List<CpBox> boxes = KartCheckpoints.list(level);
+        List<RescuePoint> pts = KartCheckpoints.points(level);
+        CpBox.Hit sel = CpBox.pick(boxes, eye, look, PICK_DIST);
+        CpBox.Hit rp = pickPoint(pts, eye, look);
         UUID id = sp.getUUID();
 
+        // ---------------------------------------------------------------- Rescate
+        if (item == RESCUE) {
+            if (rp != null) { // click en un bloque de Rescate: se orienta hacia la cara que clicas
+                if (rp.axis() == 1) {
+                    sp.sendSystemMessage(Component.literal("§e[CP] Haz click en una cara lateral para orientarlo."));
+                } else {
+                    RescuePoint old = pointAt(pts, rp.box());
+                    if (old != null) {
+                        int yaw = RescuePoint.yawFor(rp.axis(), rp.side());
+                        KartCheckpoints.replacePoint(level, old, new RescuePoint(old.x(), old.y(), old.z(), yaw));
+                        sp.sendSystemMessage(Component.literal("§d[CP] Rescate orientado hacia el §l" + RescuePoint.yawName(yaw) + "§r§d."));
+                    }
+                }
+                return InteractionResult.SUCCESS;
+            }
+            CpBox owner = null;
+            Vec3 cell = new Vec3(ghost.getX() + 0.5, ghost.getY() + 0.5, ghost.getZ() + 0.5);
+            for (CpBox b : boxes) {
+                if (!b.isFree() && b.contains(cell)) {
+                    owner = b;
+                }
+            }
+            if (owner == null) {
+                sp.sendSystemMessage(Component.literal("§c[CP] El bloque de Rescate tiene que ir dentro de un checkpoint."));
+            } else {
+                int yaw = RescuePoint.snap(sp.getYRot());
+                KartCheckpoints.addPoint(level, new RescuePoint(ghost.getX(), ghost.getY(), ghost.getZ(), yaw));
+                sp.sendSystemMessage(Component.literal("§d[CP] Rescate colocado en el checkpoint " + label(owner.number())
+                        + ", mirando al §l" + RescuePoint.yawName(yaw) + "§r§d. Click en una de sus caras laterales para orientarlo."));
+            }
+            return InteractionResult.SUCCESS;
+        }
+
+        // ---------------------------------------------------------------- Borrado
         if (item == ERASER) {
-            if (sel == null) {
-                sp.sendSystemMessage(Component.literal("§c[CP] Mira un checkpoint para borrarlo."));
+            boolean point = rp != null && (sel == null || rp.t() <= sel.t());
+            if (point) {
+                RescuePoint old = pointAt(pts, rp.box());
+                if (old != null) {
+                    KartCheckpoints.removePoint(level, old);
+                    sp.sendSystemMessage(Component.literal("§c[CP] Bloque de Rescate eliminado."));
+                }
+            } else if (sel == null) {
+                sp.sendSystemMessage(Component.literal("§c[CP] Mira un checkpoint (o un bloque de Rescate) para borrarlo."));
             } else {
                 KartCheckpoints.remove(level, sel.box());
                 sp.sendSystemMessage(Component.literal("§c[CP] Checkpoint " + label(sel.box().number()) + " eliminado."));
@@ -129,11 +196,21 @@ public final class KartCpItems {
             return InteractionResult.SUCCESS;
         }
 
+        // ---------------------------------------------------------------- Creacion / edicion
         BlockPos corner = CORNER.get(id);
         if (sp.isShiftKeyDown()) {
             if (corner != null) {
                 CORNER.remove(id);
                 sp.sendSystemMessage(Component.literal("§e[CP] Esquina cancelada."));
+            } else if (sel != null) { // shift + click en un checkpoint: recibe el numero elegido
+                int n = numberOf(sp);
+                if (sel.box().number() == n) {
+                    sp.sendSystemMessage(Component.literal("§e[CP] Ese checkpoint ya tiene el numero " + label(n) + "."));
+                } else {
+                    KartCheckpoints.replace(level, sel.box(), sel.box().withNumber(n));
+                    sp.sendSystemMessage(Component.literal("§a[CP] Numero cambiado: " + label(sel.box().number()) + " §f-> §a§l" + label(n)));
+                }
+                return InteractionResult.SUCCESS;
             } else {
                 int n = numberOf(sp);
                 setNumber(sp, n == CpBox.MAX_NUMBER ? CpBox.FREE : n == CpBox.FREE ? 0 : n + 1);

@@ -15,6 +15,7 @@ import net.minecraft.resources.Identifier;
  *  RESCUE_START: [id del kart, x*1000, y*1000, z*1000 del destino, giro*10]
  *  RESCUE_WARP : [x*1000, y*1000, z*1000] (el kart aparece en el cielo sobre el destino)
  *  RESCUE_END  : []
+ *  POINTS      : bloques de Rescate de la dimension del jugador, 4 enteros por punto [x, y, z, giro]
  */
 public record KartCpPayload(int kind, List<Integer> data) implements CustomPacketPayload {
     public static final int SYNC = 0;
@@ -23,6 +24,7 @@ public record KartCpPayload(int kind, List<Integer> data) implements CustomPacke
     public static final int RESCUE_START = 3;
     public static final int RESCUE_WARP = 4;
     public static final int RESCUE_END = 5;
+    public static final int POINTS = 6;
 
     public static final CustomPacketPayload.Type<KartCpPayload> TYPE =
             new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath(KartMod.MOD_ID, "cp"));

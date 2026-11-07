@@ -31,7 +31,8 @@ import net.minecraft.world.phys.Vec3;
  *
  * RESCATE (el cliente pone las particulas y mueve al kart; el servidor lleva el reloj):
  *  1) t 0..45: el kart se queda quieto mientras bajan particulas arcoiris; 2) t 45..75: sube al cielo;
- *  3) t 75: se coloca sobre el destino, en el cielo; 4) baja lento hasta el centro del checkpoint (mantener ESPACIO carga la barra).
+ *  3) t 75: se coloca sobre el destino, en el cielo; 4) baja lento hasta el bloque de Rescate del checkpoint (o su centro si no tiene)
+ *     y mirando hacia donde esta orientado (mantener ESPACIO carga la barra).
  */
 public final class KartRace {
     static final int OUT_GRACE_TICKS = 30;     // fuera de todas las zonas: tiempo antes del rescate (1,5 s)
@@ -266,17 +267,39 @@ public final class KartRace {
         Vec3 c = target.center();
         Rescue r = new Rescue();
         r.startTick = level.getGameTime();
-        r.tx = c.x;
-        r.tz = c.z;
-        r.ty = landingY(level, target);
         st.rescue = r;
         st.outTicks = 0;
-        // el kart mira hacia el siguiente checkpoint
+        // Si ese checkpoint tiene un bloque de Rescate, el kart aparece ahi y mirando hacia donde lo orientaste.
+        // Si no, (como antes) en el centro del checkpoint y mirando hacia el siguiente.
+        RescuePoint spot = null;
+        double best = Double.MAX_VALUE;
+        for (RescuePoint pt : KartCheckpoints.points(level)) {
+            for (CpBox b : boxes) {
+                if (!b.isFree() && b.number() == target.number() && pt.inside(b)) {
+                    double d = horse.position().distanceToSqr(pt.x() + 0.5, pt.y(), pt.z() + 0.5);
+                    if (d < best) {
+                        best = d;
+                        spot = pt;
+                    }
+                    break;
+                }
+            }
+        }
         float yaw = horse.getYRot();
-        CpBox nx = nearest(boxes, seq[(st.idx + 1) % seq.length], c);
-        if (nx != null) {
-            Vec3 nc = nx.center();
-            yaw = (float) Math.toDegrees(Math.atan2(-(nc.x - c.x), nc.z - c.z));
+        if (spot != null) {
+            r.tx = spot.x() + 0.5;
+            r.ty = spot.y();
+            r.tz = spot.z() + 0.5;
+            yaw = spot.yaw();
+        } else {
+            r.tx = c.x;
+            r.tz = c.z;
+            r.ty = landingY(level, target);
+            CpBox nx = nearest(boxes, seq[(st.idx + 1) % seq.length], c);
+            if (nx != null) {
+                Vec3 nc = nx.center();
+                yaw = (float) Math.toDegrees(Math.atan2(-(nc.x - c.x), nc.z - c.z));
+            }
         }
         horse.noPhysics = true; // sin colisiones mientras dura el rescate (en el servidor y en el cliente)
         horse.setDeltaMovement(Vec3.ZERO);

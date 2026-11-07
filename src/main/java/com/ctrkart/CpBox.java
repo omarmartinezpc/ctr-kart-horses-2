@@ -11,6 +11,7 @@ import net.minecraft.world.phys.Vec3;
 public record CpBox(int number, int x1, int y1, int z1, int x2, int y2, int z2) {
     public static final int FREE = -1;
     public static final int MAX_NUMBER = 100;
+    public static final int RESCUE_ID = -2; // cajas de una celda que representan a un bloque de Rescate (solo para apuntarlas)
 
     public static CpBox of(int number, BlockPos a, BlockPos b) {
         return new CpBox(number,
@@ -125,7 +126,7 @@ public record CpBox(int number, int x1, int y1, int z1, int x2, int y2, int z2) 
     }
 
     /** La caja que apunta el rayo (la mas cercana), con su cara. Se usa igual en el cliente (resaltar) y en el servidor (estirar/borrar). */
-    public record Hit(CpBox box, int axis, int side) {}
+    public record Hit(CpBox box, int axis, int side, double t) {}
 
     public static Hit pick(List<CpBox> boxes, Vec3 eye, Vec3 look, double maxDist) {
         Hit best = null;
@@ -134,7 +135,7 @@ public record CpBox(int number, int x1, int y1, int z1, int x2, int y2, int z2) 
             double[] r = b.ray(eye, look, maxDist);
             if (r != null && r[0] < bestT) {
                 bestT = r[0];
-                best = new Hit(b, (int) r[1], (int) r[2]);
+                best = new Hit(b, (int) r[1], (int) r[2], r[0]);
             }
         }
         return best;

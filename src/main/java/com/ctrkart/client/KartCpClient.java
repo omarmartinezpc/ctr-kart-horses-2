@@ -8,6 +8,7 @@ import com.ctrkart.KartModClient;
 import com.ctrkart.KartPhysics;
 import com.ctrkart.KartRescue;
 import com.ctrkart.KartState;
+import com.ctrkart.RescuePoint;
 import com.ctrkart.KartTracker;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
@@ -46,6 +47,7 @@ import net.minecraft.world.phys.Vec3;
  */
 public final class KartCpClient {
     private static volatile List<CpBox> boxes = List.of();
+    private static volatile List<RescuePoint> points = List.of();
     private static int uiNumber;
     private static boolean uiCornerSet;
     private static BlockPos uiCorner = BlockPos.ZERO;
@@ -85,6 +87,14 @@ public final class KartCpClient {
                     l.add(CpBox.read(d, i));
                 }
                 boxes = l;
+                break;
+            }
+            case KartCpPayload.POINTS: {
+                List<RescuePoint> l = new ArrayList<>();
+                for (int i = 0; i + 3 < d.size(); i += 4) {
+                    l.add(new RescuePoint(d.get(i), d.get(i + 1), d.get(i + 2), d.get(i + 3)));
+                }
+                points = l;
                 break;
             }
             case KartCpPayload.UI:
@@ -146,6 +156,7 @@ public final class KartCpClient {
 
     public static void clear() {
         boxes = List.of();
+        points = List.of();
         KartRescue.active = false;
         KartRescue.raceStarted = false;
         clearDisplays();
@@ -170,7 +181,8 @@ public final class KartCpClient {
         }
         boolean wand = holds(p, KartCpItems.WAND);
         boolean eraser = !wand && holds(p, KartCpItems.ERASER);
-        if (!wand && !eraser) {
+        boolean rescue = !wand && !eraser && holds(p, KartCpItems.RESCUE);
+        if (!wand && !eraser && !rescue) {
             clearDisplays();
             return;
         }
@@ -178,23 +190,65 @@ public final class KartCpClient {
         Vec3 look = p.getLookAngle();
         BlockPos ghost = CpBox.ghost(eye, look);
         List<CpBox> list = boxes;
-        CpBox.Hit sel = (wand && uiCornerSet) ? null : CpBox.pick(list, eye, look, 80.0);
+        List<RescuePoint> pts = points;
+
+        // lo que apuntas: un checkpoint (creacion / borrado) o un bloque de Rescate (rescate / borrado)
+        CpBox.Hit sel = (wand && uiCornerSet) || rescue ? null : CpBox.pick(list, eye, look, 80.0);
+        CpBox.Hit rsel = null;
+        if (rescue || eraser) {
+            List<CpBox> pb = new ArrayList<>();
+            for (RescuePoint r : pts) {
+                pb.add(r.box());
+            }
+            rsel = CpBox.pick(pb, eye, look, 80.0);
+            if (rsel != null && sel != null && rsel.t() <= sel.t()) {
+                sel = null; // el bloque de Rescate esta mas cerca: el checkpoint de detras no se resalta
+            } else if (rsel != null && sel != null) {
+                rsel = null;
+            }
+        }
 
         Set<String> keep = new HashSet<>();
+        // Checkpoints: cristal de color. Cada caja se dibuja dos veces: normal (se ve desde fuera) y con la escala al reves
+        // (se ve desde DENTRO, porque un cristal normal no se dibuja visto desde su interior).
         for (int i = 0; i < list.size(); i++) {
             CpBox b = list.get(i);
             BlockState st = colorOf(b);
             if (sel != null && sel.box().equals(b)) {
                 st = eraser ? glass("red") : glass("yellow");
             }
-            show("cp" + i, st, b.x1() - 0.003, b.y1() - 0.003, b.z1() - 0.003, b.size(0) + 0.006f, b.size(1) + 0.006f, b.size(2) + 0.006f, keep);
+            double e = 0.003;
+            double sx = b.size(0) + 2 * e;
+            double sy = b.size(1) + 2 * e;
+            double sz = b.size(2) + 2 * e;
+            show("cp" + i, st, b.x1() - e, b.y1() - e, b.z1() - e, (float) sx, (float) sy, (float) sz, keep);
+            show("ci" + i, st, b.x1() - e + sx, b.y1() - e + sy, b.z1() - e + sz, (float) -sx, (float) -sy, (float) -sz, keep);
+        }
+        // Bloques de Rescate (solidos): cuerpo naranja con una "nariz" blanca en la cara hacia la que mira el kart
+        if (rescue || eraser) {
+            for (int i = 0; i < pts.size(); i++) {
+                RescuePoint r = pts.get(i);
+                boolean aimed = rsel != null && rsel.box().x1() == r.x() && rsel.box().y1() == r.y() && rsel.box().z1() == r.z();
+                BlockState body = aimed ? (eraser ? solid("red_concrete") : solid("yellow_concrete")) : solid("orange_concrete");
+                show("rp" + i, body, r.x() - 0.001, r.y() - 0.001, r.z() - 0.001, 1.002f, 1.002f, 1.002f, keep);
+                double rad = Math.toRadians(r.yaw());
+                double fx = -Math.sin(rad);
+                double fz = Math.cos(rad);
+                double cx = r.x() + 0.5 + fx * 0.6;
+                double cz = r.z() + 0.5 + fz * 0.6;
+                show("rn" + i, solid("white_concrete"), cx - 0.15, r.y() + 0.35, cz - 0.15, 0.3f, 0.3f, 0.3f, keep);
+            }
         }
         // el bloque de la mira (sin hitbox y sin reemplazar nada: es solo una imagen)
         show("ghost", glass("light_gray"), ghost.getX() - 0.002, ghost.getY() - 0.002, ghost.getZ() - 0.002, 1.004f, 1.004f, 1.004f, keep);
         if (wand && uiCornerSet) { // vista previa del checkpoint que se va a crear
             CpBox pv = CpBox.of(uiNumber, uiCorner, ghost);
-            show("preview", glass("lime"), pv.x1() - 0.004, pv.y1() - 0.004, pv.z1() - 0.004,
-                    pv.size(0) + 0.008f, pv.size(1) + 0.008f, pv.size(2) + 0.008f, keep);
+            double e = 0.004;
+            double sx = pv.size(0) + 2 * e;
+            double sy = pv.size(1) + 2 * e;
+            double sz = pv.size(2) + 2 * e;
+            show("preview", glass("lime"), pv.x1() - e, pv.y1() - e, pv.z1() - e, (float) sx, (float) sy, (float) sz, keep);
+            show("previewi", glass("lime"), pv.x1() - e + sx, pv.y1() - e + sy, pv.z1() - e + sz, (float) -sx, (float) -sy, (float) -sz, keep);
         }
         Iterator<Map.Entry<String, Disp>> it = DISPLAYS.entrySet().iterator();
         while (it.hasNext()) {
@@ -211,10 +265,13 @@ public final class KartCpClient {
             String target = sel == null ? "" : " §7| §eApuntando: " + (sel.box().isFree() ? "zona libre" : "#" + sel.box().number());
             String msg;
             if (eraser) {
-                msg = "§c§lBORRAR §r§7| " + (sel == null ? "mira un checkpoint" : "click: eliminar" + target);
+                msg = "§c§lBORRAR §r§7| " + (rsel != null ? "click: eliminar el bloque de Rescate"
+                        : sel == null ? "mira un checkpoint o un bloque de Rescate" : "click: eliminar" + target);
+            } else if (rescue) {
+                msg = "§d§lRESCATE §r§7| " + (rsel != null ? "click en una cara lateral: orientar" : "click: colocar dentro de un checkpoint");
             } else {
                 msg = "§b§lCHECKPOINT §f" + num + " §7| esquina " + (uiCornerSet ? "2/2" : "1/2")
-                        + (sel != null ? target + " §7(click: estirar)" : "") + " §7| shift+click: numero";
+                        + (sel != null ? target + " §7(click: estirar | shift+click: poner el numero " + num + ")" : " §7| shift+click: cambiar numero");
             }
             KartModClient.showOverlay(Component.literal(msg));
         }
@@ -234,35 +291,44 @@ public final class KartCpClient {
      * busca en el registro por nombre (red_stained_glass). Si no hay, se usa el cristal normal y, por ultimo, el bloque TP.
      */
     private static BlockState glass(String color) {
-        BlockState st = GLASS.get(color);
+        BlockState st = GLASS.get("g:" + color);
         if (st != null) {
             return st;
         }
-        Block found = null;
-        Block plain = null;
-        List<String> seen = new ArrayList<>();
+        Block found = find(color + "_stained_glass");
+        if (found == null) {
+            System.err.println("[ctrkart] Checkpoints: no hay " + color + "_stained_glass; se usa el cristal normal.");
+            found = find("glass");
+        }
+        st = (found != null ? found : KartBlocks.TP_ENTRY).defaultBlockState();
+        GLASS.put("g:" + color, st);
+        return st;
+    }
+
+    /** Bloque solido por nombre (para los bloques de Rescate); si no existe, piedra. */
+    private static BlockState solid(String path) {
+        BlockState st = GLASS.get("s:" + path);
+        if (st != null) {
+            return st;
+        }
+        Block found = find(path);
+        if (found == null) {
+            System.err.println("[ctrkart] Checkpoints: no hay el bloque " + path + "; se usa piedra.");
+            found = find("stone");
+        }
+        st = (found != null ? found : KartBlocks.SACRED_PAD).defaultBlockState();
+        GLASS.put("s:" + path, st);
+        return st;
+    }
+
+    private static Block find(String path) {
         for (Block b : BuiltInRegistries.BLOCK) {
             Identifier id = BuiltInRegistries.BLOCK.getKey(b);
-            if (id == null) {
-                continue;
-            }
-            String path = id.getPath();
-            if (path.equals(color + "_stained_glass")) {
-                found = b;
-            } else if (path.equals("glass")) {
-                plain = b;
-            }
-            if (path.contains("glass")) {
-                seen.add(path);
+            if (id != null && id.getPath().equals(path)) {
+                return b;
             }
         }
-        if (found == null) {
-            System.err.println("[ctrkart] Checkpoints: no hay " + color + "_stained_glass; bloques con 'glass': " + seen);
-        }
-        Block use = found != null ? found : plain != null ? plain : KartBlocks.TP_ENTRY;
-        st = use.defaultBlockState();
-        GLASS.put(color, st);
-        return st;
+        return null;
     }
 
     // ------------------------------------------------------------------ cajas (block displays locales)

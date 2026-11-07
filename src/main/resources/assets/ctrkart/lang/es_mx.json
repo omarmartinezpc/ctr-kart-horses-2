@@ -7,5 +7,6 @@
  "block.ctrkart.tp_entry": "TP de Entrada (click derecho: numero)",
  "block.ctrkart.tp_exit": "TP de Salida (click derecho: numero)",
  "item.ctrkart.checkpoint_wand": "Varita de Checkpoints (crear / editar)",
- "item.ctrkart.checkpoint_eraser": "Borrador de Checkpoints (eliminar)"
+ "item.ctrkart.checkpoint_eraser": "Borrador de Checkpoints (eliminar)",
+ "item.ctrkart.rescue_point": "Rescate"
 }
