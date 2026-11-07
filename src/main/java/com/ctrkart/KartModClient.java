@@ -3,6 +3,7 @@ package com.ctrkart;
 import java.lang.reflect.Method;
 import com.ctrkart.client.KartCamera;
 import com.ctrkart.client.KartClientCommands;
+import com.ctrkart.client.KartRenderLayers;
 import com.ctrkart.client.KartVisuals;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
@@ -24,6 +25,7 @@ public class KartModClient implements ClientModInitializer {
         KartPhysics.ATTACK = KartModClient::attackDown;
         KartPhysics.ATTACK_CLICKS = KartModClient::consumeAttackClicks;
         KartClientCommands.register();
+        KartRenderLayers.register();
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             KartTracker.clientTick++;
             KartVisuals.tick(client);
@@ -33,7 +35,44 @@ public class KartModClient implements ClientModInitializer {
                 (payload, context) -> KartTracker.apply(payload)); // Fabric ya lo ejecuta en el hilo principal
         ClientPlayNetworking.registerGlobalReceiver(KartEnergyPayload.TYPE,
                 (payload, context) -> KartTracker.addEnergy(payload.entityId(), payload.amount()));
+        ClientPlayNetworking.registerGlobalReceiver(KartTpPayload.TYPE, (payload, context) -> handleTp(payload));
         ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> KartTracker.clear());
+    }
+
+    /** Mensajes y teletransporte de los bloques TP (ver KartTeleport). */
+    private static void handleTp(KartTpPayload p) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) {
+            return;
+        }
+        if (p.kind() == KartTpPayload.SET_ENTRY) {
+            showOverlay(Component.literal("§bTP de Entrada §fnumero §l" + p.channel()));
+            return;
+        }
+        if (p.kind() == KartTpPayload.SET_EXIT) {
+            showOverlay(Component.literal("§1TP de Salida §fnumero §l" + p.channel()));
+            return;
+        }
+        net.minecraft.world.entity.Entity e = mc.level.getEntity(p.entityId());
+        if (!(e instanceof net.minecraft.world.entity.animal.equine.AbstractHorse horse)) {
+            return;
+        }
+        KartPhysics.tpEffect(horse); // en el origen
+        double dx = p.x() - horse.getX();
+        double dy = p.y() - horse.getY();
+        double dz = p.z() - horse.getZ();
+        horse.setPos(p.x(), p.y(), p.z());
+        horse.setOldPosAndRot(); // sin que la imagen "viaje" entre los dos sitios
+        net.minecraft.world.entity.player.Player player = mc.player;
+        if (player != null && player.getVehicle() == horse) {
+            player.setPos(player.getX() + dx, player.getY() + dy, player.getZ() + dz);
+            player.setOldPosAndRot();
+        }
+        KartState st = KartTracker.get(horse.getId());
+        if (st != null) {
+            KartPhysics.onTeleported(st, p.y()); // reservas, turbo, velocidad y direccion NO se tocan
+        }
+        KartPhysics.tpEffect(horse); // en el destino
     }
 
     private static long windowHandle;

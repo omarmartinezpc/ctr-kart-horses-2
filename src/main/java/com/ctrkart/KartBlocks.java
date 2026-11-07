@@ -33,11 +33,17 @@ public final class KartBlocks {
     public static final Block SUPER_PAD_1 = registerPad("super_sacred_pad_1", MapColor.COLOR_BLUE);
     public static final Block SUPER_PAD_2 = registerPad("super_sacred_pad_2", MapColor.COLOR_BLUE);
 
+    // Teletransporte: sin colision, translucidos. Entrada = azul celeste, Salida = azul marino (ver TpBlock / KartTeleport)
+    public static final Block TP_ENTRY = registerTp("tp_entry", true, MapColor.COLOR_LIGHT_BLUE);
+    public static final Block TP_EXIT = registerTp("tp_exit", false, MapColor.COLOR_BLUE);
+
     public static final Item SACRED_PAD_ITEM = registerPadItem(SACRED_PAD, "sacred_pad");
     public static final Item SACRED_PAD_2_ITEM = registerPadItem(SACRED_PAD_2, "sacred_pad_2");
     public static final Item SACRED_PAD_3_ITEM = registerPadItem(SACRED_PAD_3, "sacred_pad_3");
     public static final Item SUPER_PAD_1_ITEM = registerPadItem(SUPER_PAD_1, "super_sacred_pad_1");
     public static final Item SUPER_PAD_2_ITEM = registerPadItem(SUPER_PAD_2, "super_sacred_pad_2");
+    public static final Item TP_ENTRY_ITEM = registerPadItem(TP_ENTRY, "tp_entry");
+    public static final Item TP_EXIT_ITEM = registerPadItem(TP_EXIT, "tp_exit");
 
     private KartBlocks() {}
 
@@ -50,6 +56,18 @@ public final class KartBlocks {
                         .sound(SoundType.METAL)
                         .strength(1.5f, 6.0f)
                         .lightLevel(state -> 15)));
+    }
+
+    private static Block registerTp(String path, boolean entry, MapColor color) {
+        ResourceKey<Block> key = ResourceKey.create(Registries.BLOCK, Identifier.fromNamespaceAndPath(KartMod.MOD_ID, path));
+        return Registry.register(BuiltInRegistries.BLOCK, key,
+                new TpBlock(BlockBehaviour.Properties.of()
+                        .setId(key)
+                        .mapColor(color)
+                        .sound(SoundType.GLASS)
+                        .strength(0.8f)
+                        .noCollision()
+                        .noOcclusion(), entry));
     }
 
     private static Item registerPadItem(Block block, String path) {
@@ -85,6 +103,8 @@ public final class KartBlocks {
         addToCreative(SACRED_PAD_3_ITEM, "Sacred Pad 3", "sacred_pad_3");
         addToCreative(SUPER_PAD_1_ITEM, "Super Sacred Pad 1", "super_sacred_pad_1");
         addToCreative(SUPER_PAD_2_ITEM, "Super Sacred Pad 2", "super_sacred_pad_2");
+        addToCreative(TP_ENTRY_ITEM, "TP de Entrada", "tp_entry");
+        addToCreative(TP_EXIT_ITEM, "TP de Salida", "tp_exit");
     }
 
     private static void addToCreative(Item item, String label, String id) {

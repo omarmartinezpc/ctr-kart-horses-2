@@ -708,6 +708,25 @@ public final class KartPhysics {
         HUD.accept(Component.literal(sb.toString()));
     }
 
+    /** Efecto de un teletransporte (se llama en el origen y en el destino). */
+    public static void tpEffect(AbstractHorse horse) {
+        Level level = horse.level();
+        RandomSource r = horse.getRandom();
+        for (int i = 0; i < 40; i++) {
+            level.addParticle(ParticleTypes.PORTAL,
+                    horse.getX() + (r.nextDouble() - 0.5), horse.getY() + r.nextDouble() * 1.2, horse.getZ() + (r.nextDouble() - 0.5),
+                    (r.nextDouble() - 0.5) * 0.5, r.nextDouble() * 0.5, (r.nextDouble() - 0.5) * 0.5);
+        }
+        sfx(horse, SoundEvents.ENDERMAN_TELEPORT, 0.7f, 1.3f);
+    }
+
+    /** Tras un teletransporte: solo se olvidan las medidas de posicion (choques y caidas). Reservas y turbo se conservan. */
+    public static void onTeleported(KartState s, double y) {
+        s.hasLast = false;
+        s.airMaxY = y;
+        s.airTicks = 0;
+    }
+
     private static void sfx(AbstractHorse h, SoundEvent e, float volume, float pitch) {
         h.level().playLocalSound(h.getX(), h.getY(), h.getZ(), e, SoundSource.NEUTRAL, volume, pitch, false);
     }

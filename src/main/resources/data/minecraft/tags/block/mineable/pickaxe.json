@@ -4,6 +4,8 @@
   "ctrkart:sacred_pad_2",
   "ctrkart:sacred_pad_3",
   "ctrkart:super_sacred_pad_1",
-  "ctrkart:super_sacred_pad_2"
+  "ctrkart:super_sacred_pad_2",
+  "ctrkart:tp_entry",
+  "ctrkart:tp_exit"
  ]
 }
