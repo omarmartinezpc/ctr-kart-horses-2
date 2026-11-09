@@ -28,6 +28,7 @@ public final class KartRescue {
 
     static final double LIFT_SPEED = 1.0;     // bloques por tick al subir (30 ticks = 30 bloques)
     static final double DESCEND_SPEED = 0.3;  // bloques por tick al bajar
+    static final int MAX_HOLD_TICKS = 10;     // la barra llena se vacia sola a los 0,5 s: hay que volver a llenarla
     static final int PHASE_HOVER = 0;
     static final int PHASE_LIFT = 1;
     static final int PHASE_WAIT = 2;
@@ -38,6 +39,7 @@ public final class KartRescue {
     private static int t;
     private static int charge;    // carga de la barra (0..3 barras): sube con ESPACIO mantenido y baja al soltarlo
     private static int lastBars;
+    private static int atMax;     // ticks que lleva la barra al maximo
     private static int endWait;
     public static int horseId;
     private static double ty;
@@ -51,6 +53,7 @@ public final class KartRescue {
         t = 0;
         charge = 0;
         lastBars = 0;
+        atMax = 0;
         endWait = 0;
         horseId = horse.getId();
         KartRescue.ty = ty;
@@ -137,6 +140,15 @@ public final class KartRescue {
                 }
                 if (bars() > lastBars) {
                     KartPhysics.sfx(horse, SoundEvents.EXPERIENCE_ORB_PICKUP, 0.8f, 0.8f + 0.3f * bars());
+                }
+                if (charge >= 3 * KartPhysics.TIER_TICKS) {
+                    if (++atMax > MAX_HOLD_TICKS) { // medio segundo al maximo: se vacia por completo
+                        charge = 0;
+                        atMax = 0;
+                        KartPhysics.sfx(horse, SoundEvents.EXPERIENCE_ORB_PICKUP, 0.8f, 0.5f);
+                    }
+                } else {
+                    atMax = 0;
                 }
                 lastBars = bars();
                 vy = -Math.min(DESCEND_SPEED, Math.max(0.0, horse.getY() - ty));

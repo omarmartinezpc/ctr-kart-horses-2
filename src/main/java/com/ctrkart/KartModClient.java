@@ -25,6 +25,7 @@ public class KartModClient implements ClientModInitializer {
         // click izquierdo (para el Sacred Fire manual del manejo clasico). Al abrir un menu el juego suelta las teclas solo.
         KartPhysics.ATTACK = KartModClient::attackDown;
         KartPhysics.ATTACK_CLICKS = KartModClient::consumeAttackClicks;
+        KartPhysics.USE = () -> Minecraft.getInstance().options.keyUse.isDown();
         KartClientCommands.register();
         KartRenderLayers.register();
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
