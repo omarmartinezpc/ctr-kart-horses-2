@@ -300,13 +300,26 @@ public final class KartRace {
             sendRace(p, st, n);
         } else if (!inside.isEmpty()) { // solo estas en zonas que no te tocan
             if (!inFree && allowRescue) {
+                logRescue("zona que no corresponde", st, seq, inside, pos);
                 startRescue(level, p, horse, st, boxes, seq);
             }
         } else if (inFree) {
             st.outTicks = 0;
         } else if (allowRescue && ++st.outTicks > OUT_GRACE_TICKS) {
+            logRescue("fuera de todas las zonas", st, seq, inside, pos);
             startRescue(level, p, horse, st, boxes, seq);
         }
+    }
+
+    /** Deja en latest.log por que se activo un rescate (para encontrar rescates que no deberian pasar). */
+    private static void logRescue(String why, State st, int[] seq, List<CpBox> inside, Vec3 pos) {
+        StringBuilder sb = new StringBuilder();
+        for (CpBox b : inside) {
+            sb.append(b.number()).append("(area=").append(b.group()).append(" y=").append(b.y1()).append("..").append(b.y2()).append(") ");
+        }
+        System.out.println("[ctrkart] Rescate: " + why + " | esperaba el checkpoint " + seq[Math.min(st.idx, seq.length - 1)]
+                + " | dentro de: " + (sb.length() == 0 ? "nada" : sb.toString().trim())
+                + String.format(java.util.Locale.ROOT, " | pos %.2f %.2f %.2f", pos.x, pos.y, pos.z));
     }
 
     private static void sendRace(ServerPlayer p, State st, int total) {

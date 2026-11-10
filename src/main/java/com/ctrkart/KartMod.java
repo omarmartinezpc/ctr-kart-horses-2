@@ -93,6 +93,7 @@ public class KartMod implements ModInitializer {
         KartCheckpoints.register();
         KartCpItems.register();
         KartCpDraw.register();
+        KartRemover.register();
         KartRaceItem.register();
         KartItem.register();
     }
