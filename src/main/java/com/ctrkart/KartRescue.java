@@ -25,6 +25,8 @@ public final class KartRescue {
     public static int raceIdx;
     public static int raceTotal;
     public static boolean raceStarted;
+    public static int racePlace;   // puesto en la carrera (1 = primero); 0 = sin dato
+    public static int raceRacers;  // corredores en carrera
 
     static final double LIFT_SPEED = 1.0;     // bloques por tick al subir (30 ticks = 30 bloques)
     static final double DESCEND_SPEED = 0.3;  // bloques por tick al bajar

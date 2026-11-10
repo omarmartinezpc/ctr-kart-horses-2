@@ -143,6 +143,8 @@ public final class KartCpClient {
                     KartRescue.raceIdx = d.get(1);
                     KartRescue.raceTotal = d.get(2);
                     KartRescue.raceStarted = d.get(3) != 0;
+                    KartRescue.racePlace = d.size() >= 6 ? d.get(4) : 0;
+                    KartRescue.raceRacers = d.size() >= 6 ? d.get(5) : 0;
                 }
                 break;
             case KartCpPayload.RESCUE_START: {
@@ -211,6 +213,8 @@ public final class KartCpClient {
         drawStretchGroup = 0;
         KartRescue.active = false;
         KartRescue.raceStarted = false;
+        KartRescue.racePlace = 0;
+        KartRescue.raceRacers = 0;
         clearDisplays();
     }
 

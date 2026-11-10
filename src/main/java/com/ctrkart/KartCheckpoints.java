@@ -24,6 +24,8 @@ public final class KartCheckpoints {
     private static final Map<String, List<CpBox>> BY_DIM = new HashMap<>();
     private static final Map<String, List<RescuePoint>> POINTS_BY_DIM = new HashMap<>();
     private static final Map<UUID, String> SENT = new HashMap<>(); // dimension a la que se envio la lista a cada jugador
+    /** Cache por dimension: lista de cajas, secuencia, indice por chunk y centros. Se borra en changed() y en load(). */
+    private static final Map<String, KartTrack> TRACKS = new HashMap<>();
     private static Path file;
 
     private KartCheckpoints() {}
@@ -37,9 +39,17 @@ public final class KartCheckpoints {
         return level.dimension().toString();
     }
 
-    /** Copia de la lista de checkpoints de ese mundo. */
+    /**
+     * Los checkpoints de esa dimension ya preparados (lista, secuencia, indice por chunk, centros). Se calculan una vez y se
+     * reutilizan hasta que cambie algo: TODO metodo que modifica cajas termina en changed(), que borra esta cache.
+     */
+    public static KartTrack track(ServerLevel level) {
+        return TRACKS.computeIfAbsent(dim(level), k -> new KartTrack(BY_DIM.getOrDefault(k, List.of())));
+    }
+
+    /** Lista de checkpoints de ese mundo: una foto de SOLO LECTURA (cambia por una nueva cuando se modifica algo). */
     public static List<CpBox> list(ServerLevel level) {
-        return new ArrayList<>(BY_DIM.getOrDefault(dim(level), List.of()));
+        return track(level).boxes();
     }
 
     /** Copia de la lista de bloques de Rescate de ese mundo. */
@@ -171,6 +181,7 @@ public final class KartCheckpoints {
     }
 
     private static void changed(ServerLevel level) {
+        TRACKS.remove(dim(level)); // invalida la cache (todos los metodos que modifican cajas o puntos pasan por aqui)
         save();
         for (ServerPlayer p : level.players()) {
             sendTo(p);
@@ -211,6 +222,7 @@ public final class KartCheckpoints {
         BY_DIM.clear();
         POINTS_BY_DIM.clear();
         SENT.clear();
+        TRACKS.clear();
         try {
             file = server.getWorldPath(LevelResource.ROOT).resolve("ctrkart_cp.txt");
             int n = 0;

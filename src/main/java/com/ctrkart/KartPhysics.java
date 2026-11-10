@@ -1,5 +1,6 @@
 package com.ctrkart;
 
+import com.ctrkart.client.KartRaceHud;
 import com.ctrkart.mixin.LivingEntityAccessor;
 import java.util.Locale;
 import net.minecraft.core.BlockPos;
@@ -730,6 +731,9 @@ public final class KartPhysics {
         if (KartRescue.raceStarted) {
             sb.append(" §7| §fVuelta §l").append(KartRescue.raceLap + 1)
                     .append("§r §7| §fCP §l").append(KartRescue.raceIdx).append("§r§7/").append(Math.max(0, KartRescue.raceTotal - 1));
+            if (!KartRaceHud.drew && KartRescue.racePlace > 0) { // si el HUD de arriba a la derecha no funciona, el puesto sale aqui
+                sb.append(" §7| §fPuesto §l").append(KartRescue.racePlace).append("§r§7/").append(KartRescue.raceRacers);
+            }
         }
         HUD.accept(Component.literal(sb.toString()));
     }

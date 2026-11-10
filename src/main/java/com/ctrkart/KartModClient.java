@@ -4,6 +4,7 @@ import java.lang.reflect.Method;
 import com.ctrkart.client.KartCamera;
 import com.ctrkart.client.KartClientCommands;
 import com.ctrkart.client.KartCpClient;
+import com.ctrkart.client.KartRaceHud;
 import com.ctrkart.client.KartRenderLayers;
 import com.ctrkart.client.KartVisuals;
 import net.fabricmc.api.ClientModInitializer;
@@ -28,6 +29,7 @@ public class KartModClient implements ClientModInitializer {
         KartPhysics.USE = () -> Minecraft.getInstance().options.keyUse.isDown();
         KartClientCommands.register();
         KartRenderLayers.register();
+        KartRaceHud.register();
         ClientTickEvents.START_CLIENT_TICK.register(KartCpClient::startTick);
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             KartTracker.clientTick++;

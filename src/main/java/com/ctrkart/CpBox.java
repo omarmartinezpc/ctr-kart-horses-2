@@ -52,6 +52,29 @@ public record CpBox(int number, int x1, int y1, int z1, int x2, int y2, int z2, 
         return p.x >= x1 && p.x < x2 + 1 && p.y >= y1 && p.y < y2 + 1 && p.z >= z1 && p.z < z2 + 1;
     }
 
+    /**
+     * ¿Toca el kart esta caja en el trayecto from -> to (un tick)? Test EXACTO, sin muestreo:
+     *  - Si from ya esta dentro: si.  - Si to esta dentro: si.
+     *  - Si no, el segmento tiene que entrar en la caja (CpBox.ray con maxT = 1).
+     * Casos limite: longitud cero = solo cuenta el punto; si el rayo solo roza una arista/cara (o va justo por el plano de
+     * una cara maxima, que contains() no incluye) NO cuenta, porque un poco mas alla del punto de entrada hay que estar dentro.
+     */
+    public boolean touchedBy(Vec3 from, Vec3 to) {
+        if (contains(from) || contains(to)) {
+            return true;
+        }
+        Vec3 d = to.subtract(from);
+        if (d.lengthSqr() < 1.0e-18) {
+            return false; // segmento de longitud cero: ya se comprobo el punto
+        }
+        double[] hit = ray(from, d, 1.0);
+        if (hit == null) {
+            return false;
+        }
+        double t = Math.min(hit[0] + 1.0e-7, 1.0);
+        return contains(from.add(d.scale(t))); // un poco despues de la entrada ya hay que estar dentro (no solo rozar)
+    }
+
     public Vec3 center() {
         return new Vec3((x1 + x2 + 1) / 2.0, (y1 + y2 + 1) / 2.0, (z1 + z2 + 1) / 2.0);
     }

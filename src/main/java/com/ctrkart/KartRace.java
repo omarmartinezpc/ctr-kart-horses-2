@@ -36,6 +36,7 @@ import net.minecraft.world.phys.Vec3;
  *     y mirando hacia donde esta orientado (mantener ESPACIO carga la barra).
  */
 public final class KartRace {
+    static final double MAX_STEP = 16.0;       // un kart no recorre mas que esto en un tick: mas es un teletransporte, no un trayecto
     static final int OUT_GRACE_TICKS = 30;     // fuera de todas las zonas: tiempo antes del rescate (1,5 s)
     static final int DISMOUNT_RESET_TICKS = 100;
     static final int RESCUE_HOVER_TICKS = 45;
@@ -63,6 +64,10 @@ public final class KartRace {
         int pause;
         Vec3 lastPos; // posicion del kart en el tick anterior (para no "saltarse" un checkpoint fino a mucha velocidad)
         Rescue rescue;
+        double progress; // progreso en la carrera (ver KartRanking.progress); durante un rescate se queda el ultimo valido
+        long cpTick;     // tick en que llego a su ultimo checkpoint (desempate de posiciones)
+        int place;       // puesto actual (1 = primero) y corredores totales, tal como se enviaron al cliente
+        int racers;
     }
 
     private static final Map<UUID, State> STATES = new HashMap<>();
@@ -80,7 +85,8 @@ public final class KartRace {
      * lo hay) y empieza de cero. Devuelve false si no se pudo (no hay checkpoint 0).
      */
     public static boolean activate(ServerLevel level, ServerPlayer p) {
-        List<CpBox> boxes = KartCheckpoints.list(level);
+        KartTrack track = KartCheckpoints.track(level);
+        List<CpBox> boxes = track.boxes();
         CpBox start = null;
         for (CpBox b : boxes) {
             if (b.number() == 0) {
@@ -95,10 +101,10 @@ public final class KartRace {
         UUID id = p.getUUID();
         ACTIVE.add(id);
         STATES.remove(id);
-        ServerPlayNetworking.send(p, new KartCpPayload(KartCpPayload.RACE, List.of(0, 0, 0, 0)));
+        ServerPlayNetworking.send(p, new KartCpPayload(KartCpPayload.RACE, List.of(0, 0, 0, 0, 0, 0)));
         Entity v = p.getVehicle();
         if (v instanceof AbstractHorse horse && KartMod.serverClass(horse) >= 0) {
-            int[] seq = sequence(boxes);
+            int[] seq = track.seq();
             Dest dst = destination(level, boxes, start, horse.position(), seq.length > 1 ? seq[1] : -1, horse.getYRot());
             horse.setPos(dst.x(), dst.y(), dst.z());
             List<Integer> d = List.of(horse.getId(), (int) Math.round(dst.x() * 1000), (int) Math.round(dst.y() * 1000),
@@ -120,7 +126,7 @@ public final class KartRace {
             horse.noPhysics = false; // se corta el rescate
             ServerPlayNetworking.send(p, new KartCpPayload(KartCpPayload.RESCUE_END, List.of()));
         }
-        ServerPlayNetworking.send(p, new KartCpPayload(KartCpPayload.RACE, List.of(0, 0, 0, 0)));
+        ServerPlayNetworking.send(p, new KartCpPayload(KartCpPayload.RACE, List.of(0, 0, 0, 0, 0, 0)));
         if (notify) {
             p.sendSystemMessage(Component.literal("§e[Carrera] Desactivada: los checkpoints y las vueltas ya no cuentan."));
         }
@@ -181,47 +187,70 @@ public final class KartRace {
                 st.pause--;
             }
             tickRace(level, p, horse, st, allowRescue);
+            if (st.started && st.rescue == null) { // durante un rescate se queda el ultimo progreso valido
+                KartTrack track = KartCheckpoints.track(level);
+                if (track.seq().length >= 2) {
+                    st.progress = KartRanking.progress(st.lap, st.idx, track.seq(), track, horse.position().add(0, 0.5, 0));
+                }
+            }
+        }
+        updatePlaces(level);
+    }
+
+    /** Ordena a los corredores de esta dimension (con la carrera activa y ya empezada) y avisa a cada uno de su puesto. */
+    private static void updatePlaces(ServerLevel level) {
+        List<ServerPlayer> racers = new ArrayList<>();
+        List<KartRanking.Entry> entries = new ArrayList<>();
+        for (ServerPlayer p : level.players()) {
+            State st = ACTIVE.contains(p.getUUID()) ? STATES.get(p.getUUID()) : null;
+            if (st != null && st.started) {
+                racers.add(p);
+                entries.add(new KartRanking.Entry(p.getUUID(), st.progress, st.cpTick));
+            }
+        }
+        if (entries.isEmpty()) {
+            return;
+        }
+        KartRanking.sort(entries);
+        int total = KartCheckpoints.track(level).seq().length;
+        for (int i = 0; i < entries.size(); i++) {
+            UUID id = entries.get(i).id();
+            State st = STATES.get(id);
+            if (st.place != i + 1 || st.racers != entries.size()) { // solo se envia cuando cambia
+                st.place = i + 1;
+                st.racers = entries.size();
+                for (ServerPlayer p : racers) {
+                    if (p.getUUID().equals(id)) {
+                        sendRace(p, st, total);
+                        break;
+                    }
+                }
+            }
         }
     }
 
     // ------------------------------------------------------------------ carrera
 
-    private static int[] sequence(List<CpBox> boxes) {
-        TreeSet<Integer> set = new TreeSet<>();
-        for (CpBox b : boxes) {
-            if (!b.isFree()) {
-                set.add(b.number());
-            }
-        }
-        int[] seq = new int[set.size()];
-        int i = 0;
-        for (int n : set) {
-            seq[i++] = n;
-        }
-        return seq;
-    }
-
     private static void tickRace(ServerLevel level, ServerPlayer p, AbstractHorse horse, State st, boolean allowRescue) {
-        List<CpBox> boxes = KartCheckpoints.list(level);
-        int[] seq = sequence(boxes);
+        KartTrack track = KartCheckpoints.track(level); // cache: solo se recalcula cuando cambian los checkpoints
+        List<CpBox> boxes = track.boxes();
+        int[] seq = track.seq();
         if (seq.length < 2 || seq[0] != 0) {
             return; // hace falta la meta (0) y al menos otro checkpoint
         }
         // Se miran todas las zonas que toco el kart en este tick (el camino entre la posicion anterior y la actual),
         // no solo el punto final: a mucha velocidad un checkpoint fino se podia "saltar" entre dos ticks.
+        // Test exacto del segmento (CpBox.touchedBy) y solo contra las cajas de los chunks que cruza el trayecto.
         Vec3 pos = horse.position().add(0, 0.5, 0);
         Vec3 from = st.lastPos == null ? pos : st.lastPos;
+        if (from.distanceToSqr(pos) > MAX_STEP * MAX_STEP) {
+            from = pos; // salto enorme (teletransporte...): no es un trayecto, no se "atraviesan" las zonas del medio
+        }
         st.lastPos = pos;
-        int steps = Math.min(60, Math.max(1, (int) Math.ceil(from.distanceTo(pos) / 0.4)));
         List<CpBox> inside = new ArrayList<>();
         boolean inFree = false;
-        for (CpBox b : boxes) {
-            boolean touched = false;
-            for (int i = 0; i <= steps && !touched; i++) {
-                double t = (double) i / steps;
-                touched = b.contains(new Vec3(from.x + (pos.x - from.x) * t, from.y + (pos.y - from.y) * t, from.z + (pos.z - from.z) * t));
-            }
-            if (touched) {
+        for (CpBox b : track.near(from, pos)) {
+            if (b.touchedBy(from, pos)) {
                 if (b.isFree()) {
                     inFree = true;
                 } else {
@@ -230,6 +259,7 @@ public final class KartRace {
             }
         }
         int n = seq.length;
+        long now = level.getGameTime();
 
         if (!st.started) {
             for (CpBox b : inside) {
@@ -240,6 +270,7 @@ public final class KartRace {
                     st.visited.clear();
                     st.lastCp = b;
                     st.outTicks = 0;
+                    st.cpTick = now;
                     sendRace(p, st, n);
                     return;
                 }
@@ -281,6 +312,7 @@ public final class KartRace {
             st.idx = nextIdx;
             st.lastCp = next;
             st.outTicks = 0;
+            st.cpTick = now;
             sendRace(p, st, n);
         } else if (same != null) {
             st.lastCp = same;
@@ -297,6 +329,7 @@ public final class KartRace {
             st.idx = prevIdx;
             st.lastCp = prev;
             st.outTicks = 0;
+            st.cpTick = now;
             sendRace(p, st, n);
         } else if (!inside.isEmpty()) { // solo estas en zonas que no te tocan
             if (!inFree && allowRescue) {
@@ -323,7 +356,7 @@ public final class KartRace {
     }
 
     private static void sendRace(ServerPlayer p, State st, int total) {
-        List<Integer> d = List.of(st.lap, st.idx, total, st.started ? 1 : 0);
+        List<Integer> d = List.of(st.lap, st.idx, total, st.started ? 1 : 0, st.place, st.racers);
         ServerPlayNetworking.send(p, new KartCpPayload(KartCpPayload.RACE, d));
     }
 
