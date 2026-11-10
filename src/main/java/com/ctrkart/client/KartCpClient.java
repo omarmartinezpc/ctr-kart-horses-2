@@ -65,8 +65,9 @@ public final class KartCpClient {
     private static int drawStretchSide;
 
     private static final class Disp {
-        final Display.BlockDisplay entity;
+        final Display entity;
         BlockState state;
+        String model;            // solo para las laminas de relleno (item display): color del modelo
         double x = Double.NaN;
         double y;
         double z;
@@ -76,7 +77,7 @@ public final class KartCpClient {
         boolean glow;
         int glowColor = -2;
 
-        Disp(Display.BlockDisplay entity) {
+        Disp(Display entity) {
             this.entity = entity;
         }
     }
@@ -319,14 +320,14 @@ public final class KartCpClient {
         for (Map.Entry<Integer, Foot> g : feet(list).entrySet()) {
             int gid = g.getKey();
             Foot f = g.getValue();
-            BlockState st = colorOf(f.sample);
+            String cn = colorName(f.sample);
             if (sel != null && sel.box().group() == gid) {
-                st = eraser ? glass("red") : glass("yellow"); // se resalta entera
+                cn = eraser ? "red" : "yellow"; // se resalta entera
             }
             if ((stretching && wandStretchGroup == gid) || (dStretch && drawStretchGroup == gid)) {
-                st = glass("yellow");
+                cn = "yellow";
             }
-            shell("g" + gid + "_", f, f.sample.y1(), f.sample.y2(), st, 0.003, keep);
+            shell("g" + gid + "_", f, f.sample.y1(), f.sample.y2(), cn, 0.003, 0.004 + 0.005 * (gid % 12), true, keep);
         }
         // Bloques de Rescate (solidos): cuerpo naranja con una "nariz" blanca en la cara hacia la que mira el kart
         if (rescue || eraser) {
@@ -354,13 +355,17 @@ public final class KartCpClient {
                 double sy = 1 + 2 * e;
                 double sz = r[3] - r[2] + 1 + 2 * e;
                 show("dc" + i, cs, r[0] - e, drawLevel - e, r[2] - e, (float) sx, (float) sy, (float) sz, keep);
-                glow("dc" + i, eye.y > drawLevel + 1.0, glowColorOf(uiNumber)); // visto desde arriba se ve el contorno a traves del suelo
+                // visto desde arriba se ve el contorno a traves del suelo, pero solo si el bloque esta metido en terreno
+                // (el brillo es costoso: asi no se usa con los bloques que ya se ven al aire)
+                boolean buried = eye.y > drawLevel + 1.0 && (solidAt(mc, r[0], drawLevel, r[2]) || solidAt(mc, r[1], drawLevel, r[3])
+                        || solidAt(mc, (r[0] + r[1]) / 2, drawLevel, (r[2] + r[3]) / 2));
+                glow("dc" + i, buried, glowColorOf(uiNumber));
                 show("di" + i, cs, r[0] - e + sx, drawLevel - e + sy, r[2] - e + sz, (float) -sx, (float) -sy, (float) -sz, keep);
             }
         }
         BlockPos gp = draw && drawCount > 0 && !dStretch ? KartCpDraw.target(eye, look, drawLevel) : ghost;
         show("ghost", glass("light_gray"), gp.getX() - 0.002, gp.getY() - 0.002, gp.getZ() - 0.002, 1.004f, 1.004f, 1.004f, keep);
-        glow("ghost", draw && eye.y > gp.getY() + 1.0, 0xCCCCCC);
+        glow("ghost", draw && eye.y > gp.getY() + 1.0 && solidAt(mc, gp.getX(), gp.getY(), gp.getZ()), 0xCCCCCC);
         List<CpBox> pvs = new ArrayList<>();
         if (wand && uiCornerSet) { // vista previa del checkpoint que se va a crear
             pvs.add(CpBox.of(uiNumber, uiCorner, ghost));
@@ -435,7 +440,14 @@ public final class KartCpClient {
     private static final class Foot {
         CpBox sample;            // una de sus partes (da el numero y la altura: todas comparten y1, y2)
         List<int[]> tops;        // [x1, x2, z1, z2]
-        List<int[]> walls;       // [eje, plano, desde, hasta] (ver KartCpDraw.wallRuns)
+        List<int[]> walls;       // [eje, plano, desde, hasta, sentido] (ver KartCpDraw.wallRuns)
+        // cache de lo ultimo dibujado (para no recalcular las piezas cada tick)
+        String[] keys;
+        int cEpoch = -1;
+        int cY1;
+        int cY2;
+        String cColor;
+        double cOff;
     }
 
     private static List<CpBox> feetFor;
@@ -474,26 +486,59 @@ public final class KartCpClient {
     }
 
     /**
-     * Dibuja el area como UNA sola pieza: solo las caras exteriores (arriba, abajo y paredes), cada una como una lamina de
-     * cristal muy fina. Se ven desde los dos lados, asi que no hace falta la copia "al reves" de las cajas normales.
+     * Dibuja el area como UNA sola pieza: solo las caras exteriores. Arriba y abajo: laminas lisas sin marco (showFill);
+     * paredes: cristal normal (con su marco, como una caja normal). Todo muy fino y visible desde los dos lados.
+     * "off" separa un poco cada area de las demas (cada una una distancia distinta) para que no haya z-fighting cuando dos
+     * areas comparten un plano. Con "cached" las piezas de un area que no cambio no se recalculan cada tick (menos lag).
      */
-    private static void shell(String prefix, Foot f, int y1, int y2, BlockState st, double e, Set<String> keep) {
-        double t = 0.006; // grosor de las laminas
+    private static void shell(String prefix, Foot f, int y1, int y2, String color, double e, double off, boolean cached, Set<String> keep) {
+        int total = f.tops.size() * 2 + f.walls.size();
+        if (cached) {
+            if (f.keys == null || f.keys.length != total) {
+                f.keys = new String[total];
+                for (int i = 0; i < total; i++) {
+                    f.keys[i] = prefix + i;
+                }
+                f.cEpoch = -1;
+            }
+            if (f.cEpoch == epoch && f.cY1 == y1 && f.cY2 == y2 && color.equals(f.cColor) && f.cOff == off) {
+                for (String k : f.keys) {
+                    keep.add(k);
+                }
+                return;
+            }
+        }
+        double t = 0.002; // grosor de las laminas
         double h = y2 - y1 + 1;
         int n = 0;
         for (int[] r : f.tops) {
             double w = r[1] - r[0] + 1 + 2 * e;
             double d = r[3] - r[2] + 1 + 2 * e;
-            show(prefix + (n++), st, r[0] - e, y2 + 1 - t / 2, r[2] - e, (float) w, (float) t, (float) d, keep);
-            show(prefix + (n++), st, r[0] - e, y1 - t / 2, r[2] - e, (float) w, (float) t, (float) d, keep);
+            double cx = (r[0] + r[1] + 1) / 2.0;
+            double cz = (r[2] + r[3] + 1) / 2.0;
+            showFill(cached ? f.keys[n] : prefix + n, color, cx, y2 + 1 + off, cz, (float) w, (float) t, (float) d, keep);
+            n++;
+            showFill(cached ? f.keys[n] : prefix + n, color, cx, y1 - off, cz, (float) w, (float) t, (float) d, keep);
+            n++;
         }
+        BlockState wall = glass(color);
         for (int[] w : f.walls) {
             double len = w[3] - w[2] + 1 + 2 * e;
-            if (w[0] == 0) { // pared que recorre X, en el plano z = w[1]
-                show(prefix + (n++), st, w[2] - e, y1 - e, w[1] - t / 2, (float) len, (float) (h + 2 * e), (float) t, keep);
-            } else {         // pared que recorre Z, en el plano x = w[1]
-                show(prefix + (n++), st, w[1] - t / 2, y1 - e, w[2] - e, (float) t, (float) (h + 2 * e), (float) len, keep);
+            double plane = w[1] + w[4] * off; // un poco hacia fuera
+            String key = cached ? f.keys[n] : prefix + n;
+            n++;
+            if (w[0] == 0) { // pared que recorre X, en el plano z = plano
+                show(key, wall, w[2] - e, y1 - e, plane - t / 2, (float) len, (float) (h + 2 * e), (float) t, keep);
+            } else {         // pared que recorre Z, en el plano x = plano
+                show(key, wall, plane - t / 2, y1 - e, w[2] - e, (float) t, (float) (h + 2 * e), (float) len, keep);
             }
+        }
+        if (cached) {
+            f.cEpoch = epoch;
+            f.cY1 = y1;
+            f.cY2 = y2;
+            f.cColor = color;
+            f.cOff = off;
         }
     }
 
@@ -505,7 +550,7 @@ public final class KartCpClient {
         }
         CpBox nb = f.sample.withBound(1, side, target);
         if (nb != null) {
-            shell("pg_", f, nb.y1(), nb.y2(), glass("lime"), 0.004, keep);
+            shell("pg_", f, nb.y1(), nb.y2(), "lime", 0.004, 0.07, false, keep); // 0.07: fuera de cualquier area (sin z-fighting)
         }
     }
 
@@ -540,11 +585,12 @@ public final class KartCpClient {
         return out;
     }
 
+    private static String colorName(CpBox b) {
+        return b.isFree() ? "green" : b.number() == 0 ? "white" : "purple";
+    }
+
     private static BlockState colorOf(CpBox b) {
-        if (b.isFree()) {
-            return glass("green");
-        }
-        return glass(b.number() == 0 ? "white" : "purple");
+        return glass(colorName(b));
     }
 
     private static final Map<String, BlockState> GLASS = new HashMap<>();
@@ -603,6 +649,11 @@ public final class KartCpClient {
             return;
         }
         Disp d = DISPLAYS.get(key);
+        if (d != null && !(d.entity instanceof Display.BlockDisplay)) { // era una lamina lisa y ahora hace falta un cristal
+            d.entity.discard();
+            DISPLAYS.remove(key);
+            d = null;
+        }
         if (d == null) {
             Display.BlockDisplay e = create(level, state);
             if (e == null) {
@@ -612,7 +663,7 @@ public final class KartCpClient {
             d.state = state;
             DISPLAYS.put(key, d);
         } else if (!d.state.equals(state)) {
-            if (setBlockState(d.entity, state)) {
+            if (setBlockState((Display.BlockDisplay) d.entity, state)) {
                 d.state = state;
             }
         }
@@ -629,6 +680,117 @@ public final class KartCpClient {
             d.y = y;
             d.z = z;
         }
+    }
+
+    // ------------------------------------------------------------------ relleno liso (item display)
+
+    private static EntityType<?> itemDisplayType;
+    private static boolean itemFail;
+    private static final Map<String, ItemStack> FILL_STACKS = new HashMap<>();
+
+    private static ItemStack fillStack(String color) {
+        ItemStack st = FILL_STACKS.get(color);
+        if (st == null) {
+            st = new ItemStack(net.minecraft.world.item.Items.STICK);
+            st.set(net.minecraft.core.component.DataComponents.ITEM_MODEL,
+                    Identifier.fromNamespaceAndPath("ctrkart", "cp_fill_" + color));
+            FILL_STACKS.put(color, st);
+        }
+        return st;
+    }
+
+    private static boolean setItem(Display.ItemDisplay d, ItemStack item) throws ReflectiveOperationException {
+        for (Method m : Display.ItemDisplay.class.getDeclaredMethods()) {
+            Class<?>[] p = m.getParameterTypes();
+            if (p.length == 1 && p[0] == ItemStack.class && m.getName().toLowerCase().contains("itemstack")) {
+                m.setAccessible(true);
+                m.invoke(d, item);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static Display.ItemDisplay createItem(ClientLevel level, String color) {
+        try {
+            if (itemDisplayType == null) {
+                for (EntityType<?> t : BuiltInRegistries.ENTITY_TYPE) {
+                    Identifier id = BuiltInRegistries.ENTITY_TYPE.getKey(t);
+                    if (id != null && id.getPath().equals("item_display")) {
+                        itemDisplayType = t;
+                        break;
+                    }
+                }
+            }
+            if (itemDisplayType == null) {
+                return null;
+            }
+            Display.ItemDisplay d = new Display.ItemDisplay(itemDisplayType, level);
+            d.setId(nextId--);
+            if (!setItem(d, fillStack(color)) || !addToLevel(level, d)) {
+                return null;
+            }
+            setViewRange(d, 16f);
+            return d;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Lamina de relleno SIN marco: un cubo con el cristal tintado de vanilla pero solo con su parte de dentro (modelos
+     * cp_fill_*), estirado como lamina fina. Asi las caras de arriba y abajo de un area se ven lisas aunque esten hechas de
+     * varias piezas. (cx, cy, cz) = centro de la lamina. Si no se pueden crear, se usa un cristal normal fino.
+     */
+    private static void showFill(String key, String color, double cx, double cy, double cz, float sx, float sy, float sz, Set<String> keep) {
+        if (itemFail) {
+            show(key, glass(color), cx - sx / 2.0, cy - sy / 2.0, cz - sz / 2.0, sx, sy, sz, keep);
+            return;
+        }
+        keep.add(key);
+        Minecraft mc = Minecraft.getInstance();
+        if (!(mc.level instanceof ClientLevel level)) {
+            return;
+        }
+        Disp d = DISPLAYS.get(key);
+        if (d == null) {
+            Display.ItemDisplay e = createItem(level, color);
+            if (e == null) {
+                itemFail = true;
+                System.err.println("[ctrkart] Checkpoints: no pude crear las laminas lisas (item display); se usa el cristal normal");
+                keep.remove(key);
+                show(key, glass(color), cx - sx / 2.0, cy - sy / 2.0, cz - sz / 2.0, sx, sy, sz, keep);
+                return;
+            }
+            d = new Disp(e);
+            d.model = color;
+            DISPLAYS.put(key, d);
+        } else if (d.entity instanceof Display.ItemDisplay idp && !color.equals(d.model)) {
+            try {
+                if (setItem(idp, fillStack(color))) {
+                    d.model = color;
+                }
+            } catch (ReflectiveOperationException ex) {
+                // se queda con el color anterior
+            }
+        }
+        if (d.sx != sx || d.sy != sy || d.sz != sz) {
+            setScale(d.entity, sx, sy, sz);
+            d.sx = sx;
+            d.sy = sy;
+            d.sz = sz;
+        }
+        if (d.x != cx || d.y != cy || d.z != cz) {
+            d.entity.setPos(cx, cy, cz);
+            d.entity.setOldPosAndRot();
+            d.x = cx;
+            d.y = cy;
+            d.z = cz;
+        }
+    }
+
+    private static boolean solidAt(Minecraft mc, int x, int y, int z) {
+        return mc.level != null && !mc.level.getBlockState(new BlockPos(x, y, z)).isAir();
     }
 
     private static int glowColorOf(int number) {
@@ -696,10 +858,13 @@ public final class KartCpClient {
         }
     }
 
+    private static int epoch; // sube cada vez que se borran todos los displays (las piezas guardadas en cache ya no existen)
+
     private static void clearDisplays() {
         if (DISPLAYS.isEmpty()) {
             return;
         }
+        epoch++;
         for (Disp d : DISPLAYS.values()) {
             d.entity.discard();
         }
@@ -764,7 +929,7 @@ public final class KartCpClient {
         return false;
     }
 
-    private static boolean addToLevel(ClientLevel level, Display.BlockDisplay d) throws ReflectiveOperationException {
+    private static boolean addToLevel(ClientLevel level, Display d) throws ReflectiveOperationException {
         for (String name : new String[] {"addEntity", "putNonPlayerEntity"}) {
             for (Method m : level.getClass().getMethods()) {
                 if (!m.getName().equals(name)) {

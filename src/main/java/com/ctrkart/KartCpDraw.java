@@ -279,8 +279,9 @@ public final class KartCpDraw {
 
     /**
      * Las paredes EXTERIORES del area (sin las caras que tocan otro bloque del area), juntando en una sola pieza las que van
-     * seguidas en linea recta. Cada pared es [eje, plano, desde, hasta]: eje 0 = pared que recorre X (en el plano z = plano),
-     * eje 1 = pared que recorre Z (en el plano x = plano); "desde..hasta" son bloques (inclusive).
+     * seguidas en linea recta. Cada pared es [eje, plano, desde, hasta, sentido]: eje 0 = pared que recorre X (en el plano
+     * z = plano), eje 1 = pared que recorre Z (en el plano x = plano); "desde..hasta" son bloques (inclusive); sentido = -1 o +1
+     * segun hacia donde mira la cara (hacia fuera del area).
      */
     public static List<int[]> wallRuns(Set<Long> cells) {
         // 4 direcciones de cara expuesta: 0 = -z, 1 = +z, 2 = -x, 3 = +x; plano -> posiciones ordenadas
@@ -307,6 +308,7 @@ public final class KartCpDraw {
         List<int[]> out = new ArrayList<>();
         for (int dir = 0; dir < 4; dir++) {
             int axis = dir < 2 ? 0 : 1;
+            int sign = dir % 2 == 0 ? -1 : 1;
             for (Map.Entry<Integer, TreeSet<Integer>> e : faces.get(dir).entrySet()) {
                 boolean open = false;
                 int start = 0;
@@ -317,14 +319,14 @@ public final class KartCpDraw {
                         continue;
                     }
                     if (open) {
-                        out.add(new int[] {axis, e.getKey(), start, prev});
+                        out.add(new int[] {axis, e.getKey(), start, prev, sign});
                     }
                     start = v;
                     prev = v;
                     open = true;
                 }
                 if (open) {
-                    out.add(new int[] {axis, e.getKey(), start, prev});
+                    out.add(new int[] {axis, e.getKey(), start, prev, sign});
                 }
             }
         }

@@ -1,0 +1,77 @@
+{
+ "textures": {
+  "all": "minecraft:block/white_stained_glass",
+  "particle": "minecraft:block/white_stained_glass"
+ },
+ "elements": [
+  {
+   "from": [
+    0,
+    0,
+    0
+   ],
+   "to": [
+    16,
+    16,
+    16
+   ],
+   "shade": false,
+   "faces": {
+    "down": {
+     "uv": [
+      2,
+      2,
+      14,
+      14
+     ],
+     "texture": "#all"
+    },
+    "up": {
+     "uv": [
+      2,
+      2,
+      14,
+      14
+     ],
+     "texture": "#all"
+    },
+    "north": {
+     "uv": [
+      2,
+      2,
+      14,
+      14
+     ],
+     "texture": "#all"
+    },
+    "south": {
+     "uv": [
+      2,
+      2,
+      14,
+      14
+     ],
+     "texture": "#all"
+    },
+    "west": {
+     "uv": [
+      2,
+      2,
+      14,
+      14
+     ],
+     "texture": "#all"
+    },
+    "east": {
+     "uv": [
+      2,
+      2,
+      14,
+      14
+     ],
+     "texture": "#all"
+    }
+   }
+  }
+ ]
+}
