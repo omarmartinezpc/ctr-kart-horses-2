@@ -60,6 +60,11 @@ public class KartMod implements ModInitializer {
     private static final Identifier RIDER_SCALE_ID = Identifier.fromNamespaceAndPath(MOD_ID, "rider_scale");
 
     private static final Map<UUID, Integer> SUPER = new ConcurrentHashMap<>(); // ticks restantes (servidor)
+
+    /** Quita el Super Motor de un kart (al ser rescatado). */
+    public static void clearSuper(UUID horseId) {
+        SUPER.remove(horseId);
+    }
     private static final Map<UUID, Integer> LAST_CLASS = new ConcurrentHashMap<>();
 
     @Override
@@ -67,6 +72,7 @@ public class KartMod implements ModInitializer {
         PayloadTypeRegistry.clientboundPlay().register(KartSyncPayload.TYPE, KartSyncPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(KartEnergyPayload.TYPE, KartEnergyPayload.CODEC);
         PayloadTypeRegistry.clientboundPlay().register(KartTpPayload.TYPE, KartTpPayload.CODEC);
+        PayloadTypeRegistry.clientboundPlay().register(KartCpPayload.TYPE, KartCpPayload.CODEC);
 
         UseEntityCallback.EVENT.register(KartMod::onUseEntity);
 
@@ -84,12 +90,18 @@ public class KartMod implements ModInitializer {
         KartInvincible.register();
         KartBlocks.register();
         KartTeleport.register();
+        KartCheckpoints.register();
+        KartCpItems.register();
+        KartCpDraw.register();
+        KartRemover.register();
+        KartRaceItem.register();
         KartItem.register();
     }
 
     /** Cada 10 ticks: detecta /tag add|remove kart y descuenta el Super Motor. */
     private static void tickLevel(ServerLevel level) {
         updateRiders(level);
+        KartRace.tick(level);
         KartTeleport.tick(level);
         if (level.getGameTime() % 10L != 0L) {
             return;

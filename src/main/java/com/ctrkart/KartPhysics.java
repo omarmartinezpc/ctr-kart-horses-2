@@ -100,6 +100,11 @@ public final class KartPhysics {
     static final int U_TURN_MIN_AIR_TICKS = 2;       // ticks en el aire antes de poder hacer U-Turn
     static final float U_TURN_STEER_MULT = 2.4f;     // giro multiplicado con A/D durante el U-Turn
     static final float U_TURN_DRIFT_MULT = 1.6f;     // si ademas derrapas, la curva se cierra esto mas
+    // Con el CLICK DERECHO mantenido el U-Turn es mas pronunciado (el click izquierdo se reserva para el turbo)...
+    static final float U_TURN_CLICK_STEER_MULT = 4.2f;
+    static final float U_TURN_CLICK_DRIFT_MULT = 2.4f;
+    // ...pero mas de 1 segundo seguido en el suelo con ese mismo click frena el kart y pierde todo (hay que aprender a usarlo).
+    static final int CLICK_GROUND_LIMIT_TICKS = 20;
     // Bloque Sacred Pad
     static final float PAD_ENERGY = 40f;             // reservas que da al pisarlo
     static final int PAD_REARM_TICKS = 10;           // ticks fuera del bloque para que se pueda activar otra vez (10 = 0,5 s)
@@ -136,6 +141,7 @@ public final class KartPhysics {
 
     /** Lo fija el cliente (KartModClient): true mientras se mantiene el click izquierdo. */
     public static volatile java.util.function.BooleanSupplier ATTACK = () -> false;
+    public static volatile java.util.function.BooleanSupplier USE = () -> false; // click derecho mantenido
 
     /** Lo fija el cliente: devuelve true si hubo pulsaciones del click izquierdo desde la ultima vez (las gasta). */
     public static volatile java.util.function.BooleanSupplier ATTACK_CLICKS = () -> false;
@@ -152,6 +158,9 @@ public final class KartPhysics {
             s.needsReset = false;
         }
         s.lastTick = now;
+        if (KartRescue.active && KartRescue.tick(horse, rider, s)) {
+            return; // durante el rescate el kart no se conduce: lo mueve la animacion
+        }
 
         // Choque real contra pared: solo si el kart intento avanzar y casi no se movio ni subio.
         // Asi subir bloques/escalones no quita velocidad.
@@ -188,6 +197,18 @@ public final class KartPhysics {
 
         // --- aire / aterrizaje (caida alta) ---
         boolean onGround = horse.onGround();
+        // Click DERECHO mantenido = U-Turn mas pronunciado (ver mas abajo). Si pasas mas de 1 s seguido en el suelo con ese
+        // click mantenido, el kart frena de golpe y pierde velocidad, turbos y reservas (sin aviso en el HUD).
+        boolean rightClick = USE.getAsBoolean();
+        if (onGround && rightClick) {
+            if (++s.groundClickTicks > CLICK_GROUND_LIMIT_TICKS) {
+                loseBoosts(s);
+                s.speed = 0;
+                s.groundClickTicks = 0;
+            }
+        } else {
+            s.groundClickTicks = 0;
+        }
         if (!onGround) {
             s.airMaxY = s.airTicks == 0 ? horse.getY() : Math.max(s.airMaxY, horse.getY());
             s.airTicks++;
@@ -288,7 +309,8 @@ public final class KartPhysics {
             rate = k.turn * steer * speedFactor * (s.speed < 0 ? -1f : 1f);
         }
         if (uTurn) {
-            rate *= s.drifting ? U_TURN_DRIFT_MULT : U_TURN_STEER_MULT;
+            rate *= s.drifting ? (rightClick ? U_TURN_CLICK_DRIFT_MULT : U_TURN_DRIFT_MULT)
+                    : (rightClick ? U_TURN_CLICK_STEER_MULT : U_TURN_STEER_MULT);
         }
         s.moveYaw += rate;
         float angle = classic ? DRIFT_ANGLE * (0.55f + 0.45f * curve / CLASSIC_CURVE_MAX) : DRIFT_ANGLE; // mas recto = menos cruzado
@@ -705,7 +727,72 @@ public final class KartPhysics {
                 }
             }
         }
+        if (KartRescue.raceStarted) {
+            sb.append(" §7| §fVuelta §l").append(KartRescue.raceLap + 1)
+                    .append("§r §7| §fCP §l").append(KartRescue.raceIdx).append("§r§7/").append(Math.max(0, KartRescue.raceTotal - 1));
+        }
         HUD.accept(Component.literal(sb.toString()));
+    }
+
+    /** El kart se coloca en otro sitio mirando a "yaw", parado (la carrera empieza ahi). No toca reservas ni turbos. */
+    public static void placeAt(AbstractHorse horse, KartState s, double y, float yaw) {
+        onTeleported(s, y);
+        s.moveYaw = yaw;
+        s.bodyOffset = 0f;
+        s.speed = 0;
+        s.drifting = false;
+        s.pending = 0;
+        s.charge = 0;
+        s.hopAir = false;
+        s.uTurn = false;
+        horse.setYRot(yaw);
+        horse.setDeltaMovement(0, 0, 0);
+    }
+
+    /** Ser rescatado quita todo: reservas, Sacred Fire (cualquier nivel), turbos, Super Motor y la memoria de Sacred Fire. */
+    public static void loseBoosts(KartState s) {
+        s.energy = 0;
+        s.sacred = false;
+        s.sacredTier = 0;
+        s.chainBonus = false;
+        s.boostTicks = 0;
+        s.fireLevel = 0;
+        s.superTicks = 0;
+        s.strikeCount = 0;
+        java.util.Arrays.fill(s.strikeChained, false);
+        s.sacredReady = false;
+        s.sacredWindow = 0;
+        s.sacredFailed = false;
+        s.failSmokeTicks = 0;
+        s.drifting = false;
+        s.pending = 0;
+        s.charge = 0;
+    }
+
+    /**
+     * Fin del rescate: el kart sale mirando hacia el siguiente checkpoint. Las barras cargadas con ESPACIO durante la bajada
+     * dan su recompensa: 3 barras = Sacred Fire; 1 o 2 = turbo rojo / amarillo. Ademas arranca con algo de velocidad.
+     */
+    static void rescueLanding(AbstractHorse horse, KartState s, int bars, float yaw) {
+        s.moveYaw = yaw;
+        s.bodyOffset = 0f;
+        s.drifting = false;
+        s.driftGrounded = false;
+        s.pending = 0;
+        s.charge = 0;
+        s.hopAir = false;
+        s.airTicks = 0;
+        s.uTurn = false;
+        s.hasLast = false;
+        s.airMaxY = horse.getY();
+        if (bars >= 3) {
+            driftStrike(horse, s);
+        } else if (bars > 0) {
+            s.fireLevel = s.boostTicks > 0 ? Math.max(s.fireLevel, bars) : bars;
+            s.boostTicks = Math.min(BOOST_CAP, s.boostTicks + TURBO_TICKS_PER_LEVEL * bars);
+            sfx(horse, SoundEvents.FIREWORK_ROCKET_LAUNCH, 0.8f, 1.0f);
+        }
+        s.speed = Math.max(s.speed, 0.30 + 0.12 * bars);
     }
 
     /** Efecto de un teletransporte (se llama en el origen y en el destino). */
@@ -727,7 +814,7 @@ public final class KartPhysics {
         s.airTicks = 0;
     }
 
-    private static void sfx(AbstractHorse h, SoundEvent e, float volume, float pitch) {
+    static void sfx(AbstractHorse h, SoundEvent e, float volume, float pitch) {
         h.level().playLocalSound(h.getX(), h.getY(), h.getZ(), e, SoundSource.NEUTRAL, volume, pitch, false);
     }
 }

@@ -186,6 +186,10 @@ public final class KartTeleport {
                 COOLDOWN.remove(id);
                 continue;
             }
+            if (KartRace.isRescuing(id)) { // en pleno rescate el kart atraviesa bloques sin activar nada
+                LAST_POS.remove(id);
+                continue;
+            }
             Vec3 now = horse.position();
             Vec3 prev = LAST_POS.put(id, now);
             Integer cd = COOLDOWN.get(id);

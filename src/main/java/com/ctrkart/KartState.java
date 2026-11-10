@@ -43,6 +43,7 @@ public final class KartState {
     public int sacredWindow;    // ticks que quedan para hacer click con el Sacred Fire listo
     public boolean sacredFailed; // fallaste: no hay mas Sacred Fire en este derrape
     public int failSmokeTicks;  // humo negro en los escapes tras fallar
+    public int groundClickTicks; // ticks seguidos en el suelo con el click derecho mantenido
     public boolean attackHeld;  // click izquierdo del tick anterior (para detectar la pulsacion)
     public boolean hasLast;    // para detectar choques reales contra paredes
     public double lastX, lastY, lastZ, appliedSpeed;
@@ -77,6 +78,7 @@ public final class KartState {
         sacredFailed = false;
         failSmokeTicks = 0;
         attackHeld = false;
+        groundClickTicks = 0;
         java.util.Arrays.fill(strikeChained, false);
         hasLast = false;
         appliedSpeed = 0;
