@@ -98,14 +98,14 @@ public final class KartCpItems {
         return n == CpBox.FREE ? "ZONA SIN RESTRICCIONES" : n == 0 ? "0 (META)" : String.valueOf(n);
     }
 
-    private static void setNumber(ServerPlayer p, int n) {
+    static void setNumber(ServerPlayer p, int n) {
         NUMBER.put(p.getUUID(), n);
         p.sendSystemMessage(Component.literal("§b[CP] §fNumero elegido: §l" + label(n)));
         sendUi(p);
     }
 
     /** Estado del item (numero y esquina) para el cliente: se dibuja la vista previa y el mensaje de la barra de accion. */
-    private static void sendUi(ServerPlayer p) {
+    static void sendUi(ServerPlayer p) {
         BlockPos c = CORNER.get(p.getUUID());
         List<Integer> d = new ArrayList<>();
         d.add(numberOf(p));
@@ -208,7 +208,11 @@ public final class KartCpItems {
             } else if (sel == null) {
                 sp.sendSystemMessage(Component.literal("§c[CP] Mira un checkpoint (o un bloque de Rescate) para borrarlo."));
             } else {
-                KartCheckpoints.remove(level, sel.box());
+                if (sel.box().group() != 0) { // area dibujada: se borra completa
+                    KartCheckpoints.removeGroup(level, sel.box().group());
+                } else {
+                    KartCheckpoints.remove(level, sel.box());
+                }
                 sp.sendSystemMessage(Component.literal("§c[CP] Checkpoint " + label(sel.box().number()) + " eliminado."));
             }
             return InteractionResult.SUCCESS;
@@ -229,7 +233,7 @@ public final class KartCpItems {
                 if (sel.box().number() == n) {
                     sp.sendSystemMessage(Component.literal("§e[CP] Ese checkpoint ya tiene el numero " + label(n) + "."));
                 } else {
-                    KartCheckpoints.replace(level, sel.box(), sel.box().withNumber(n));
+                    KartCheckpoints.renumber(level, sel.box(), n);
                     sp.sendSystemMessage(Component.literal("§a[CP] Numero cambiado: " + label(sel.box().number()) + " §f-> §a§l" + label(n)));
                 }
                 return InteractionResult.SUCCESS;
@@ -246,6 +250,14 @@ public final class KartCpItems {
             } else {
                 int axis = stretch.axis();
                 int target = axis == 0 ? ghost.getX() : axis == 1 ? ghost.getY() : ghost.getZ();
+                if (current.group() != 0) { // area dibujada: solo se estira en vertical y todas sus partes a la vez
+                    int h = axis == 1 ? KartCheckpoints.stretchGroup(level, current.group(), stretch.side(), target) : -1;
+                    sp.sendSystemMessage(Component.literal(h < 0
+                            ? "§c[CP] No se puede estirar hasta ahi (la cara se pasaria al otro lado). Estirar cancelado."
+                            : "§e[CP] Area dibujada " + label(current.number()) + " estirada (alto " + h + ")."));
+                    sendUi(sp);
+                    return InteractionResult.SUCCESS;
+                }
                 CpBox stretched = current.withBound(axis, stretch.side(), target);
                 if (stretched == null) {
                     sp.sendSystemMessage(Component.literal("§c[CP] No se puede estirar hasta ahi (la cara se pasaria al otro lado). Estirar cancelado."));
@@ -256,9 +268,13 @@ public final class KartCpItems {
                 }
             }
         } else if (corner == null && sel != null) { // 1er click: se elige la cara
-            STRETCH.put(id, new Stretch(sel.box(), sel.axis(), sel.side()));
-            sp.sendSystemMessage(Component.literal("§e[CP] Cara elegida del checkpoint " + label(sel.box().number())
-                    + ". Haz click a la distancia a la que quieres estirarlo (agachado + click cancela)."));
+            if (sel.box().group() != 0 && sel.axis() != 1) {
+                sp.sendSystemMessage(Component.literal("§e[CP] Las areas dibujadas solo se estiran hacia arriba o abajo (caras de arriba y abajo)."));
+            } else {
+                STRETCH.put(id, new Stretch(sel.box(), sel.axis(), sel.side()));
+                sp.sendSystemMessage(Component.literal("§e[CP] Cara elegida del checkpoint " + label(sel.box().number())
+                        + ". Haz click a la distancia a la que quieres estirarlo (agachado + click cancela)."));
+            }
         } else if (corner == null) {
             CORNER.put(id, ghost);
             sp.sendSystemMessage(Component.literal("§a[CP] Esquina 1 marcada. Marca la esquina 2 para crear el checkpoint "

@@ -3,6 +3,8 @@ package com.ctrkart.client;
 import com.ctrkart.CpBox;
 import com.ctrkart.KartCpItems;
 import com.ctrkart.KartBlocks;
+import com.ctrkart.KartCpActionPayload;
+import com.ctrkart.KartCpDraw;
 import com.ctrkart.KartCpPayload;
 import com.ctrkart.KartModClient;
 import com.ctrkart.KartPhysics;
@@ -20,6 +22,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
@@ -54,6 +57,12 @@ public final class KartCpClient {
     private static CpBox uiStretchBox;   // checkpoint cuya cara se eligio para estirar (null = nada elegido)
     private static int uiStretchAxis;
     private static int uiStretchSide;
+    // "Dibujar Checkpoint": contorno que se esta dibujando (ya unido en rectangulos) y area que se estira
+    private static List<int[]> drawRects = List.of();
+    private static int drawCount;
+    private static int drawLevel;
+    private static int drawStretchGroup;
+    private static int drawStretchSide;
 
     private static final class Disp {
         final Display.BlockDisplay entity;
@@ -86,7 +95,7 @@ public final class KartCpClient {
         switch (p.kind()) {
             case KartCpPayload.SYNC: {
                 List<CpBox> l = new ArrayList<>();
-                for (int i = 0; i + 6 < d.size(); i += 7) {
+                for (int i = 0; i + 7 < d.size(); i += 8) {
                     l.add(CpBox.read(d, i));
                 }
                 boxes = l;
@@ -109,6 +118,20 @@ public final class KartCpClient {
                     uiStretchBox = stretching ? new CpBox(CpBox.FREE, d.get(6), d.get(7), d.get(8), d.get(9), d.get(10), d.get(11)) : null;
                     uiStretchAxis = stretching ? d.get(12) : 0;
                     uiStretchSide = stretching ? d.get(13) : 0;
+                }
+                break;
+            case KartCpPayload.DRAW:
+                if (d.size() >= 4) {
+                    drawStretchGroup = d.get(0);
+                    drawStretchSide = d.get(1);
+                    drawLevel = d.get(2);
+                    List<Long> cells = new ArrayList<>();
+                    int n = d.get(3);
+                    for (int i = 0; i < n && 5 + 2 * i < d.size(); i++) {
+                        cells.add(KartCpDraw.key(d.get(4 + 2 * i), d.get(5 + 2 * i)));
+                    }
+                    drawCount = cells.size();
+                    drawRects = KartCpDraw.rects(cells);
                 }
                 break;
             case KartCpPayload.RACE:
@@ -180,6 +203,9 @@ public final class KartCpClient {
     public static void clear() {
         boxes = List.of();
         points = List.of();
+        drawRects = List.of();
+        drawCount = 0;
+        drawStretchGroup = 0;
         KartRescue.active = false;
         KartRescue.raceStarted = false;
         clearDisplays();
@@ -189,6 +215,25 @@ public final class KartCpClient {
 
     private static boolean holds(LocalPlayer p, Item item) {
         return p.getMainHandItem().getItem() == item || p.getOffhandItem().getItem() == item;
+    }
+
+    /**
+     * Al EMPEZAR cada tick (antes de que el juego lea el raton): con "Dibujar Checkpoint" en la mano, el click izquierdo se
+     * gasta aqui y se manda al servidor (rellenar / cancelar); asi el juego no lo usa para atacar ni romper. Montado en un
+     * kart no se toca, porque ahi el click izquierdo es del turbo.
+     */
+    public static void startTick(Minecraft mc) {
+        LocalPlayer p = mc.player;
+        if (p == null || mc.level == null || p.getVehicle() != null || !holds(p, KartCpDraw.ITEM)) {
+            return;
+        }
+        boolean any = false;
+        while (mc.options.keyAttack.consumeClick()) {
+            any = true;
+        }
+        if (any) {
+            ClientPlayNetworking.send(new KartCpActionPayload(KartCpActionPayload.LEFT_CLICK, 0));
+        }
     }
 
     public static void tick(Minecraft mc) {
@@ -205,7 +250,8 @@ public final class KartCpClient {
         boolean wand = holds(p, KartCpItems.WAND);
         boolean eraser = !wand && holds(p, KartCpItems.ERASER);
         boolean rescue = !wand && !eraser && holds(p, KartCpItems.RESCUE);
-        if (!wand && !eraser && !rescue) {
+        boolean draw = !wand && !eraser && !rescue && holds(p, KartCpDraw.ITEM);
+        if (!wand && !eraser && !rescue && !draw) {
             clearDisplays();
             return;
         }
@@ -217,7 +263,20 @@ public final class KartCpClient {
 
         // lo que apuntas: un checkpoint (creacion / borrado) o un bloque de Rescate (rescate / borrado)
         boolean stretching = wand && uiStretchBox != null;
-        CpBox.Hit sel = (wand && uiCornerSet) || rescue || stretching ? null : CpBox.pick(list, eye, look, 80.0);
+        boolean dStretch = draw && drawStretchGroup != 0;
+        CpBox.Hit sel;
+        if (draw) { // con "Dibujar Checkpoint" solo se apuntan las areas dibujadas
+            List<CpBox> areas = new ArrayList<>();
+            for (CpBox b : list) {
+                if (b.group() != 0) {
+                    areas.add(b);
+                }
+            }
+            sel = drawCount > 0 || dStretch ? null : CpBox.pick(areas, eye, look, 80.0);
+        } else {
+            sel = (wand && uiCornerSet) || rescue || stretching ? null : CpBox.pick(list, eye, look, 80.0);
+        }
+        int wandStretchGroup = stretching ? groupOf(list, uiStretchBox) : 0;
         CpBox.Hit rsel = null;
         if (rescue || eraser) {
             List<CpBox> pb = new ArrayList<>();
@@ -238,11 +297,14 @@ public final class KartCpClient {
         for (int i = 0; i < list.size(); i++) {
             CpBox b = list.get(i);
             BlockState st = colorOf(b);
-            if (sel != null && sel.box().equals(b)) {
-                st = eraser ? glass("red") : glass("yellow");
+            if (sel != null && (sel.box().group() != 0 ? sel.box().group() == b.group() : sel.box().equals(b))) {
+                st = eraser ? glass("red") : glass("yellow"); // (un area dibujada se resalta entera)
             }
-            if (stretching && sameBox(b, uiStretchBox)) {
+            if (stretching && (sameBox(b, uiStretchBox) || (wandStretchGroup != 0 && b.group() == wandStretchGroup))) {
                 st = glass("yellow"); // el checkpoint que se esta estirando
+            }
+            if (dStretch && b.group() == drawStretchGroup) {
+                st = glass("yellow");
             }
             double e = 0.003;
             double sx = b.size(0) + 2 * e;
@@ -267,22 +329,39 @@ public final class KartCpClient {
             }
         }
         // el bloque de la mira (sin hitbox y sin reemplazar nada: es solo una imagen)
-        show("ghost", glass("light_gray"), ghost.getX() - 0.002, ghost.getY() - 0.002, ghost.getZ() - 0.002, 1.004f, 1.004f, 1.004f, keep);
-        CpBox pv = null;
+        // contorno que se esta dibujando (mismo cristal y color que un checkpoint con ese numero)
+        if (draw && drawCount > 0) {
+            BlockState cs = colorOf(new CpBox(uiNumber, 0, 0, 0, 0, 0, 0));
+            for (int i = 0; i < drawRects.size(); i++) {
+                int[] r = drawRects.get(i);
+                double e = 0.003;
+                double sx = r[1] - r[0] + 1 + 2 * e;
+                double sy = 1 + 2 * e;
+                double sz = r[3] - r[2] + 1 + 2 * e;
+                show("dc" + i, cs, r[0] - e, drawLevel - e, r[2] - e, (float) sx, (float) sy, (float) sz, keep);
+                show("di" + i, cs, r[0] - e + sx, drawLevel - e + sy, r[2] - e + sz, (float) -sx, (float) -sy, (float) -sz, keep);
+            }
+        }
+        BlockPos gp = draw && drawCount > 0 && !dStretch ? KartCpDraw.target(eye, look, drawLevel) : ghost;
+        show("ghost", glass("light_gray"), gp.getX() - 0.002, gp.getY() - 0.002, gp.getZ() - 0.002, 1.004f, 1.004f, 1.004f, keep);
+        List<CpBox> pvs = new ArrayList<>();
         if (wand && uiCornerSet) { // vista previa del checkpoint que se va a crear
-            pv = CpBox.of(uiNumber, uiCorner, ghost);
+            pvs.add(CpBox.of(uiNumber, uiCorner, ghost));
         } else if (stretching) {   // vista previa del checkpoint ya estirado hasta el bloque de la mira
             int axis = uiStretchAxis;
             int target = axis == 0 ? ghost.getX() : axis == 1 ? ghost.getY() : ghost.getZ();
-            pv = uiStretchBox.withBound(axis, uiStretchSide, target);
+            pvs.addAll(stretched(list, wandStretchGroup, uiStretchBox, axis, uiStretchSide, target));
+        } else if (dStretch) {     // area dibujada estirada (solo en vertical) hasta el bloque de la mira
+            pvs.addAll(stretched(list, drawStretchGroup, null, 1, drawStretchSide, ghost.getY()));
         }
-        if (pv != null) {
+        for (int i = 0; i < pvs.size(); i++) {
+            CpBox pv = pvs.get(i);
             double e = 0.004;
             double sx = pv.size(0) + 2 * e;
             double sy = pv.size(1) + 2 * e;
             double sz = pv.size(2) + 2 * e;
-            show("preview", glass("lime"), pv.x1() - e, pv.y1() - e, pv.z1() - e, (float) sx, (float) sy, (float) sz, keep);
-            show("previewi", glass("lime"), pv.x1() - e + sx, pv.y1() - e + sy, pv.z1() - e + sz, (float) -sx, (float) -sy, (float) -sz, keep);
+            show("preview" + i, glass("lime"), pv.x1() - e, pv.y1() - e, pv.z1() - e, (float) sx, (float) sy, (float) sz, keep);
+            show("previewi" + i, glass("lime"), pv.x1() - e + sx, pv.y1() - e + sy, pv.z1() - e + sz, (float) -sx, (float) -sy, (float) -sz, keep);
         }
         Iterator<Map.Entry<String, Disp>> it = DISPLAYS.entrySet().iterator();
         while (it.hasNext()) {
@@ -298,7 +377,18 @@ public final class KartCpClient {
             String num = uiNumber == CpBox.FREE ? "ZONA LIBRE" : uiNumber == 0 ? "0 (META)" : String.valueOf(uiNumber);
             String target = sel == null ? "" : " §7| §eApuntando: " + (sel.box().isFree() ? "zona libre" : "#" + sel.box().number());
             String msg;
-            if (eraser) {
+            if (draw) {
+                if (dStretch) {
+                    msg = "§e§lESTIRAR AREA §r§7| click a la altura deseada (se ve la vista previa) §7| shift+click: cancelar";
+                } else if (drawCount > 0) {
+                    msg = "§b§lDIBUJAR §f" + num + " §7| " + drawCount + " bloques | click der: dibujar (manten: trazar; sobre un bloque: quitar)"
+                            + " | click izq DENTRO: rellenar | shift+click izq: cancelar";
+                } else {
+                    msg = "§b§lDIBUJAR CHECKPOINT §f" + num + " §7| click derecho: dibujar el contorno"
+                            + (sel != null ? " §7| §eApuntando: area #" + sel.box().number() + " §7(click en cara de arriba/abajo: estirar | shift+click: poner el numero " + num + ")"
+                            : " §7| shift+click: cambiar numero");
+                }
+            } else if (eraser) {
                 msg = "§c§lBORRAR §r§7| " + (rsel != null ? "click: eliminar el bloque de Rescate"
                         : sel == null ? "mira un checkpoint o un bloque de Rescate" : "click: eliminar" + target);
             } else if (rescue) {
@@ -316,6 +406,37 @@ public final class KartCpClient {
     /** Misma caja (el numero no cuenta: el servidor manda el estado de estirar sin el numero). */
     private static boolean sameBox(CpBox a, CpBox b) {
         return a.x1() == b.x1() && a.y1() == b.y1() && a.z1() == b.z1() && a.x2() == b.x2() && a.y2() == b.y2() && a.z2() == b.z2();
+    }
+
+    /** Grupo (area dibujada) al que pertenece esa caja de la lista, o 0. */
+    private static int groupOf(List<CpBox> list, CpBox like) {
+        for (CpBox b : list) {
+            if (sameBox(b, like)) {
+                return b.group();
+            }
+        }
+        return 0;
+    }
+
+    /** La caja (o, si es un area dibujada, todas sus partes) con una cara movida a "target". */
+    private static List<CpBox> stretched(List<CpBox> list, int group, CpBox single, int axis, int side, int target) {
+        List<CpBox> out = new ArrayList<>();
+        if (group != 0) {
+            for (CpBox b : list) {
+                if (b.group() == group && axis == 1) {
+                    CpBox n = b.withBound(axis, side, target);
+                    if (n != null) {
+                        out.add(n);
+                    }
+                }
+            }
+        } else if (single != null) {
+            CpBox n = single.withBound(axis, side, target);
+            if (n != null) {
+                out.add(n);
+            }
+        }
+        return out;
     }
 
     private static BlockState colorOf(CpBox b) {

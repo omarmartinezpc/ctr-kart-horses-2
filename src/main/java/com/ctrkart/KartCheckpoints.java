@@ -76,6 +76,81 @@ public final class KartCheckpoints {
         changed(level);
     }
 
+    /** Anade varias cajas de una vez (un area dibujada): se guarda y se envia una sola vez. */
+    public static void addAll(ServerLevel level, List<CpBox> boxes) {
+        BY_DIM.computeIfAbsent(dim(level), k -> new ArrayList<>()).addAll(boxes);
+        changed(level);
+    }
+
+    /** Numero de grupo libre para un area dibujada (los checkpoints normales son grupo 0). */
+    public static int newGroup() {
+        int max = 0;
+        for (List<CpBox> l : BY_DIM.values()) {
+            for (CpBox b : l) {
+                max = Math.max(max, b.group());
+            }
+        }
+        return max + 1;
+    }
+
+    /** Borra el area dibujada completa (todas sus partes). */
+    public static void removeGroup(ServerLevel level, int group) {
+        List<CpBox> l = BY_DIM.get(dim(level));
+        if (l != null && l.removeIf(b -> b.group() == group)) {
+            changed(level);
+        }
+    }
+
+    /** Cambia el numero de un checkpoint; si es un area dibujada, de todas sus partes. */
+    public static void renumber(ServerLevel level, CpBox box, int n) {
+        if (box.group() == 0) {
+            replace(level, box, box.withNumber(n));
+            return;
+        }
+        List<CpBox> l = BY_DIM.get(dim(level));
+        if (l == null) {
+            return;
+        }
+        boolean any = false;
+        for (int i = 0; i < l.size(); i++) {
+            if (l.get(i).group() == box.group()) {
+                l.set(i, l.get(i).withNumber(n));
+                any = true;
+            }
+        }
+        if (any) {
+            changed(level);
+        }
+    }
+
+    /** Estira en VERTICAL un area dibujada (mueve su cara de arriba o de abajo, en todas sus partes). Devuelve el alto nuevo o -1 si no se pudo. */
+    public static int stretchGroup(ServerLevel level, int group, int side, int target) {
+        List<CpBox> l = BY_DIM.get(dim(level));
+        if (l == null) {
+            return -1;
+        }
+        int height = -1;
+        for (CpBox b : l) {
+            if (b.group() == group) {
+                CpBox n = b.withBound(1, side, target);
+                if (n == null) {
+                    return -1;
+                }
+                height = n.size(1);
+            }
+        }
+        if (height < 0) {
+            return -1;
+        }
+        for (int i = 0; i < l.size(); i++) {
+            if (l.get(i).group() == group) {
+                l.set(i, l.get(i).withBound(1, side, target));
+            }
+        }
+        changed(level);
+        return height;
+    }
+
     public static void remove(ServerLevel level, CpBox box) {
         List<CpBox> l = BY_DIM.get(dim(level));
         if (l != null && l.remove(box)) {
@@ -146,11 +221,11 @@ public final class KartCheckpoints {
                         POINTS_BY_DIM.computeIfAbsent(p[0], k -> new ArrayList<>()).add(new RescuePoint(
                                 Integer.parseInt(p[2].trim()), Integer.parseInt(p[3].trim()), Integer.parseInt(p[4].trim()),
                                 Integer.parseInt(p[5].trim())));
-                    } else if (p.length == 8) {
+                    } else if (p.length == 8 || p.length == 9) { // la 9a columna (grupo) solo existe en las areas dibujadas
                         BY_DIM.computeIfAbsent(p[0], k -> new ArrayList<>()).add(new CpBox(
                                 Integer.parseInt(p[1].trim()), Integer.parseInt(p[2].trim()), Integer.parseInt(p[3].trim()),
                                 Integer.parseInt(p[4].trim()), Integer.parseInt(p[5].trim()), Integer.parseInt(p[6].trim()),
-                                Integer.parseInt(p[7].trim())));
+                                Integer.parseInt(p[7].trim()), p.length == 9 ? Integer.parseInt(p[8].trim()) : 0));
                         n++;
                     }
                 }
@@ -170,7 +245,7 @@ public final class KartCheckpoints {
             for (Map.Entry<String, List<CpBox>> e : BY_DIM.entrySet()) {
                 for (CpBox b : e.getValue()) {
                     lines.add(e.getKey() + "\t" + b.number() + "\t" + b.x1() + "\t" + b.y1() + "\t" + b.z1() + "\t"
-                            + b.x2() + "\t" + b.y2() + "\t" + b.z2());
+                            + b.x2() + "\t" + b.y2() + "\t" + b.z2() + (b.group() != 0 ? "\t" + b.group() : ""));
                 }
             }
             for (Map.Entry<String, List<RescuePoint>> e : POINTS_BY_DIM.entrySet()) {

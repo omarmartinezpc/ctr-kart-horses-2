@@ -8,10 +8,23 @@ import net.minecraft.world.phys.Vec3;
  * Un checkpoint: una caja de bloques (esquinas incluidas, coordenadas enteras) con un numero.
  * number 0 = META, 1..100 = recorrido, FREE (-1) = "zona sin restricciones" (ahi no se aplican las reglas).
  */
-public record CpBox(int number, int x1, int y1, int z1, int x2, int y2, int z2) {
+public record CpBox(int number, int x1, int y1, int z1, int x2, int y2, int z2, int group) {
     public static final int FREE = -1;
     public static final int MAX_NUMBER = 100;
     public static final int RESCUE_ID = -2; // cajas de una celda que representan a un bloque de Rescate (solo para apuntarlas)
+
+    /**
+     * group = 0: checkpoint normal (una caja). group > 0: la caja es UNA PARTE de un area dibujada con "Dibujar Checkpoint"
+     * (el area se guarda como varios rectangulos de 1 bloque de alto que comparten numero y grupo; para la carrera cada
+     * rectangulo es un checkpoint mas con ese numero).
+     */
+    public CpBox(int number, int x1, int y1, int z1, int x2, int y2, int z2) {
+        this(number, x1, y1, z1, x2, y2, z2, 0);
+    }
+
+    public boolean isGroup() {
+        return group != 0;
+    }
 
     public static CpBox of(int number, BlockPos a, BlockPos b) {
         return new CpBox(number,
@@ -103,11 +116,11 @@ public record CpBox(int number, int x1, int y1, int z1, int x2, int y2, int z2) 
         if (mn[axis] > mx[axis]) {
             return null;
         }
-        return new CpBox(number, mn[0], mn[1], mn[2], mx[0], mx[1], mx[2]);
+        return new CpBox(number, mn[0], mn[1], mn[2], mx[0], mx[1], mx[2], group);
     }
 
     public CpBox withNumber(int n) {
-        return new CpBox(n, x1, y1, z1, x2, y2, z2);
+        return new CpBox(n, x1, y1, z1, x2, y2, z2, group);
     }
 
     public void writeTo(List<Integer> out) {
@@ -118,11 +131,12 @@ public record CpBox(int number, int x1, int y1, int z1, int x2, int y2, int z2) 
         out.add(x2);
         out.add(y2);
         out.add(z2);
+        out.add(group);
     }
 
     public static CpBox read(List<Integer> in, int off) {
         return new CpBox(in.get(off), in.get(off + 1), in.get(off + 2), in.get(off + 3),
-                in.get(off + 4), in.get(off + 5), in.get(off + 6));
+                in.get(off + 4), in.get(off + 5), in.get(off + 6), in.get(off + 7));
     }
 
     /** La caja que apunta el rayo (la mas cercana), con su cara. Se usa igual en el cliente (resaltar) y en el servidor (estirar/borrar). */

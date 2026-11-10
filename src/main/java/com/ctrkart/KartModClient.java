@@ -28,6 +28,7 @@ public class KartModClient implements ClientModInitializer {
         KartPhysics.USE = () -> Minecraft.getInstance().options.keyUse.isDown();
         KartClientCommands.register();
         KartRenderLayers.register();
+        ClientTickEvents.START_CLIENT_TICK.register(KartCpClient::startTick);
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             KartTracker.clientTick++;
             KartVisuals.tick(client);
