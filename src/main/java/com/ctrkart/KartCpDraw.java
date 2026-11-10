@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.TreeSet;
 import java.util.UUID;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
@@ -39,7 +40,8 @@ import net.minecraft.world.phys.Vec3;
  * Herramienta "Dibujar Checkpoint" (item checkpoint_draw).
  *
  * DIBUJAR (click derecho): cada click pone un bloque del contorno (translucido, como los checkpoints). El primer bloque fija
- *  la altura del dibujo; los demas se colocan en ese mismo nivel, donde apunta la mira. Si MANTIENES el click y mueves la
+ *  la altura del dibujo; los demas se colocan en ese mismo nivel, en el bloque de la mira (a 4 bloques, como los demas items).
+ *  Si MANTIENES el click y mueves la
  *  mira, traza una linea continua. Un click suelto sobre un bloque ya dibujado lo quita (y si mantienes, sigue quitando).
  * RELLENAR (click izquierdo, DENTRO del contorno): como el cubo de pintura; si el contorno esta cerrado se rellena en
  *  horizontal, 1 bloque de alto, y queda como un checkpoint mas (con el numero elegido). Si hay un hueco, avisa y no rellena.
@@ -57,7 +59,6 @@ public final class KartCpDraw {
 
     public static final int MAX_CELLS = 3000;          // bloques dibujados como maximo
     private static final double PICK_DIST = 80.0;      // hasta donde se "selecciona" un area con la mira
-    private static final double PLANE_REACH = 24.0;    // hasta donde llega la mira sobre el plano del dibujo
     private static final long HOLD_GAP = 6;            // ticks: menos que esto entre dos clicks = el boton sigue mantenido
     private static final int MAX_GRID = 160_000;       // celdas maximas que se examinan al rellenar
     private static final int MAX_RECTS = 200;          // rectangulos maximos de un area rellenada
@@ -105,9 +106,27 @@ public final class KartCpDraw {
         // con la herramienta en la mano no se rompen bloques (cliente y servidor)
         AttackBlockCallback.EVENT.register((player, world, hand, pos, direction) ->
                 holds(player) ? InteractionResult.FAIL : InteractionResult.PASS);
+        ServerTickEvents.END_LEVEL_TICK.register(KartCpDraw::tickLevel);
         ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> DRAWS.remove(handler.getPlayer().getUUID()));
         if (!KartItem.registerCreativeEntry(CreativeModeTabs.TOOLS_AND_UTILITIES, () -> new ItemStack(ITEM), "Dibujar Checkpoint")) {
             System.err.println("[ctrkart] No pude anadir Dibujar Checkpoint al creativo. Alternativa: /give @s ctrkart:checkpoint_draw");
+        }
+    }
+
+    /** Cada tick: si el jugador ya no tiene la herramienta en la mano (cambio de item), se borra lo que tenia sin terminar. */
+    private static void tickLevel(ServerLevel level) {
+        if (DRAWS.isEmpty()) {
+            return;
+        }
+        for (ServerPlayer p : level.players()) {
+            Draw d = DRAWS.get(p.getUUID());
+            if (d == null || (d.cells.isEmpty() && d.stretchGroup == 0) || holds(p)) {
+                continue;
+            }
+            boolean hadCells = !d.cells.isEmpty();
+            d.reset();
+            say(p, hadCells ? "§e[CP] Dibujo sin terminar borrado (cambiaste de item)." : "§e[CP] Estirar cancelado.");
+            sendDraw(p, d);
         }
     }
 
@@ -129,17 +148,8 @@ public final class KartCpDraw {
         return (int) k;
     }
 
-    /**
-     * Bloque donde se dibuja: el punto en que la mira corta el plano horizontal del dibujo (a "level"); si la mira no llega
-     * a ese plano (mirando hacia arriba o muy lejos), el bloque de la mira (a 4 bloques) llevado a ese nivel.
-     */
+    /** Bloque donde se dibuja: el bloque de la mira de siempre (a 4 bloques del ojo, igual que los demas items) llevado a la altura del dibujo. */
     public static BlockPos target(Vec3 eye, Vec3 look, int level) {
-        if (Math.abs(look.y) > 1e-4) {
-            double t = (level + 0.5 - eye.y) / look.y;
-            if (t > 0.0 && t <= PLANE_REACH) {
-                return new BlockPos((int) Math.floor(eye.x + look.x * t), level, (int) Math.floor(eye.z + look.z * t));
-            }
-        }
         BlockPos g = CpBox.ghost(eye, look);
         return new BlockPos(g.getX(), level, g.getZ());
     }

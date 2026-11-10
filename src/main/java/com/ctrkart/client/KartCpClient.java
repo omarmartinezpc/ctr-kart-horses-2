@@ -73,6 +73,8 @@ public final class KartCpClient {
         float sx;
         float sy;
         float sz;
+        boolean glow;
+        int glowColor = -2;
 
         Disp(Display.BlockDisplay entity) {
             this.entity = entity;
@@ -339,11 +341,13 @@ public final class KartCpClient {
                 double sy = 1 + 2 * e;
                 double sz = r[3] - r[2] + 1 + 2 * e;
                 show("dc" + i, cs, r[0] - e, drawLevel - e, r[2] - e, (float) sx, (float) sy, (float) sz, keep);
+                glow("dc" + i, eye.y > drawLevel + 1.0, glowColorOf(uiNumber)); // visto desde arriba se ve el contorno a traves del suelo
                 show("di" + i, cs, r[0] - e + sx, drawLevel - e + sy, r[2] - e + sz, (float) -sx, (float) -sy, (float) -sz, keep);
             }
         }
         BlockPos gp = draw && drawCount > 0 && !dStretch ? KartCpDraw.target(eye, look, drawLevel) : ghost;
         show("ghost", glass("light_gray"), gp.getX() - 0.002, gp.getY() - 0.002, gp.getZ() - 0.002, 1.004f, 1.004f, 1.004f, keep);
+        glow("ghost", draw && eye.y > gp.getY() + 1.0, 0xCCCCCC);
         List<CpBox> pvs = new ArrayList<>();
         if (wand && uiCornerSet) { // vista previa del checkpoint que se va a crear
             pvs.add(CpBox.of(uiNumber, uiCorner, ghost));
@@ -527,6 +531,71 @@ public final class KartCpClient {
             d.x = x;
             d.y = y;
             d.z = z;
+        }
+    }
+
+    private static int glowColorOf(int number) {
+        return number == CpBox.FREE ? 0x55FF55 : number == 0 ? 0xFFFFFF : 0xB060FF;
+    }
+
+    /**
+     * Contorno brillante: el juego dibuja el contorno de las entidades "brillantes" a traves de los bloques. Se usa para que el
+     * dibujo se vea a traves del suelo cuando lo miras desde arriba (solo en vertical: a la misma altura o desde abajo no brilla).
+     */
+    private static void glow(String key, boolean on, int color) {
+        Disp d = DISPLAYS.get(key);
+        if (d == null) {
+            return;
+        }
+        if (d.glow != on) {
+            setGlowing(d.entity, on);
+            d.glow = on;
+        }
+        if (on && d.glowColor != color) {
+            setGlowColor(d.entity, color);
+            d.glowColor = color;
+        }
+    }
+
+    private static void setGlowing(Entity e, boolean on) {
+        try {
+            for (Method m : Entity.class.getMethods()) {
+                if (m.getName().equals("setGlowingTag") && m.getParameterCount() == 1 && m.getParameterTypes()[0] == boolean.class) {
+                    m.invoke(e, on);
+                    return;
+                }
+            }
+            for (Method m : Entity.class.getDeclaredMethods()) { // alternativa: la bandera compartida 6 (brillo)
+                Class<?>[] p = m.getParameterTypes();
+                if (m.getName().equals("setSharedFlag") && p.length == 2 && p[0] == int.class && p[1] == boolean.class) {
+                    m.setAccessible(true);
+                    m.invoke(e, 6, on);
+                    return;
+                }
+            }
+            if (!warned) {
+                warned = true;
+                System.err.println("[ctrkart] Checkpoints: no encontre como hacer brillar las cajas (setGlowingTag); no se veran a traves del suelo");
+            }
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            if (!warned) {
+                warned = true;
+                System.err.println("[ctrkart] Checkpoints: no pude hacer brillar una caja: " + ex);
+            }
+        }
+    }
+
+    private static void setGlowColor(Display d, int color) {
+        try {
+            for (Method m : Display.class.getDeclaredMethods()) {
+                if (m.getName().equals("setGlowColorOverride") && m.getParameterCount() == 1 && m.getParameterTypes()[0] == int.class) {
+                    m.setAccessible(true);
+                    m.invoke(d, color);
+                    return;
+                }
+            }
+        } catch (ReflectiveOperationException | RuntimeException ex) {
+            // sin esto el contorno sale blanco
         }
     }
 
