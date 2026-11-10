@@ -298,15 +298,15 @@ public final class KartCpClient {
         // (se ve desde DENTRO, porque un cristal normal no se dibuja visto desde su interior).
         for (int i = 0; i < list.size(); i++) {
             CpBox b = list.get(i);
+            if (b.group() != 0) {
+                continue; // las areas dibujadas se pintan aparte, como una sola pieza (ver mas abajo)
+            }
             BlockState st = colorOf(b);
-            if (sel != null && (sel.box().group() != 0 ? sel.box().group() == b.group() : sel.box().equals(b))) {
-                st = eraser ? glass("red") : glass("yellow"); // (un area dibujada se resalta entera)
+            if (sel != null && sel.box().group() == 0 && sel.box().equals(b)) {
+                st = eraser ? glass("red") : glass("yellow");
             }
-            if (stretching && (sameBox(b, uiStretchBox) || (wandStretchGroup != 0 && b.group() == wandStretchGroup))) {
+            if (stretching && sameBox(b, uiStretchBox)) {
                 st = glass("yellow"); // el checkpoint que se esta estirando
-            }
-            if (dStretch && b.group() == drawStretchGroup) {
-                st = glass("yellow");
             }
             double e = 0.003;
             double sx = b.size(0) + 2 * e;
@@ -314,6 +314,19 @@ public final class KartCpClient {
             double sz = b.size(2) + 2 * e;
             show("cp" + i, st, b.x1() - e, b.y1() - e, b.z1() - e, (float) sx, (float) sy, (float) sz, keep);
             show("ci" + i, st, b.x1() - e + sx, b.y1() - e + sy, b.z1() - e + sz, (float) -sx, (float) -sy, (float) -sz, keep);
+        }
+        // Areas dibujadas: UNA sola pieza (solo su cascara exterior), no un cristal por cada rectangulo
+        for (Map.Entry<Integer, Foot> g : feet(list).entrySet()) {
+            int gid = g.getKey();
+            Foot f = g.getValue();
+            BlockState st = colorOf(f.sample);
+            if (sel != null && sel.box().group() == gid) {
+                st = eraser ? glass("red") : glass("yellow"); // se resalta entera
+            }
+            if ((stretching && wandStretchGroup == gid) || (dStretch && drawStretchGroup == gid)) {
+                st = glass("yellow");
+            }
+            shell("g" + gid + "_", f, f.sample.y1(), f.sample.y2(), st, 0.003, keep);
         }
         // Bloques de Rescate (solidos): cuerpo naranja con una "nariz" blanca en la cara hacia la que mira el kart
         if (rescue || eraser) {
@@ -354,9 +367,13 @@ public final class KartCpClient {
         } else if (stretching) {   // vista previa del checkpoint ya estirado hasta el bloque de la mira
             int axis = uiStretchAxis;
             int target = axis == 0 ? ghost.getX() : axis == 1 ? ghost.getY() : ghost.getZ();
-            pvs.addAll(stretched(list, wandStretchGroup, uiStretchBox, axis, uiStretchSide, target));
+            if (wandStretchGroup != 0) {
+                shellPreview(list, wandStretchGroup, axis, uiStretchSide, target, keep);
+            } else {
+                pvs.addAll(stretched(list, 0, uiStretchBox, axis, uiStretchSide, target));
+            }
         } else if (dStretch) {     // area dibujada estirada (solo en vertical) hasta el bloque de la mira
-            pvs.addAll(stretched(list, drawStretchGroup, null, 1, drawStretchSide, ghost.getY()));
+            shellPreview(list, drawStretchGroup, 1, drawStretchSide, ghost.getY(), keep);
         }
         for (int i = 0; i < pvs.size(); i++) {
             CpBox pv = pvs.get(i);
@@ -410,6 +427,86 @@ public final class KartCpClient {
     /** Misma caja (el numero no cuenta: el servidor manda el estado de estirar sin el numero). */
     private static boolean sameBox(CpBox a, CpBox b) {
         return a.x1() == b.x1() && a.y1() == b.y1() && a.z1() == b.z1() && a.x2() == b.x2() && a.y2() == b.y2() && a.z2() == b.z2();
+    }
+
+    // ------------------------------------------------------------------ areas dibujadas (una sola pieza)
+
+    /** Forma de un area dibujada, vista desde arriba: sus rectangulos grandes (caras de arriba/abajo) y sus paredes exteriores. */
+    private static final class Foot {
+        CpBox sample;            // una de sus partes (da el numero y la altura: todas comparten y1, y2)
+        List<int[]> tops;        // [x1, x2, z1, z2]
+        List<int[]> walls;       // [eje, plano, desde, hasta] (ver KartCpDraw.wallRuns)
+    }
+
+    private static List<CpBox> feetFor;
+    private static Map<Integer, Foot> feet = new HashMap<>();
+
+    /** Formas de todas las areas dibujadas de la lista (se calculan una vez por cada lista nueva que manda el servidor). */
+    private static Map<Integer, Foot> feet(List<CpBox> list) {
+        if (feetFor == list) {
+            return feet;
+        }
+        Map<Integer, Set<Long>> cells = new HashMap<>();
+        Map<Integer, CpBox> sample = new HashMap<>();
+        for (CpBox b : list) {
+            if (b.group() == 0) {
+                continue;
+            }
+            sample.putIfAbsent(b.group(), b);
+            Set<Long> set = cells.computeIfAbsent(b.group(), k -> new HashSet<>());
+            for (int x = b.x1(); x <= b.x2(); x++) {
+                for (int z = b.z1(); z <= b.z2(); z++) {
+                    set.add(KartCpDraw.key(x, z));
+                }
+            }
+        }
+        Map<Integer, Foot> out = new HashMap<>();
+        for (Map.Entry<Integer, Set<Long>> e : cells.entrySet()) {
+            Foot f = new Foot();
+            f.sample = sample.get(e.getKey());
+            f.tops = KartCpDraw.fatRects(e.getValue());
+            f.walls = KartCpDraw.wallRuns(e.getValue());
+            out.put(e.getKey(), f);
+        }
+        feet = out;
+        feetFor = list;
+        return out;
+    }
+
+    /**
+     * Dibuja el area como UNA sola pieza: solo las caras exteriores (arriba, abajo y paredes), cada una como una lamina de
+     * cristal muy fina. Se ven desde los dos lados, asi que no hace falta la copia "al reves" de las cajas normales.
+     */
+    private static void shell(String prefix, Foot f, int y1, int y2, BlockState st, double e, Set<String> keep) {
+        double t = 0.006; // grosor de las laminas
+        double h = y2 - y1 + 1;
+        int n = 0;
+        for (int[] r : f.tops) {
+            double w = r[1] - r[0] + 1 + 2 * e;
+            double d = r[3] - r[2] + 1 + 2 * e;
+            show(prefix + (n++), st, r[0] - e, y2 + 1 - t / 2, r[2] - e, (float) w, (float) t, (float) d, keep);
+            show(prefix + (n++), st, r[0] - e, y1 - t / 2, r[2] - e, (float) w, (float) t, (float) d, keep);
+        }
+        for (int[] w : f.walls) {
+            double len = w[3] - w[2] + 1 + 2 * e;
+            if (w[0] == 0) { // pared que recorre X, en el plano z = w[1]
+                show(prefix + (n++), st, w[2] - e, y1 - e, w[1] - t / 2, (float) len, (float) (h + 2 * e), (float) t, keep);
+            } else {         // pared que recorre Z, en el plano x = w[1]
+                show(prefix + (n++), st, w[1] - t / 2, y1 - e, w[2] - e, (float) t, (float) (h + 2 * e), (float) len, keep);
+            }
+        }
+    }
+
+    /** Vista previa (verde) de un area dibujada con su cara de arriba o de abajo movida a "target". */
+    private static void shellPreview(List<CpBox> list, int group, int axis, int side, int target, Set<String> keep) {
+        Foot f = feet(list).get(group);
+        if (f == null || axis != 1) {
+            return;
+        }
+        CpBox nb = f.sample.withBound(1, side, target);
+        if (nb != null) {
+            shell("pg_", f, nb.y1(), nb.y2(), glass("lime"), 0.004, keep);
+        }
     }
 
     /** Grupo (area dibujada) al que pertenece esa caja de la lista, o 0. */

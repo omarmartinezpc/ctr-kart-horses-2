@@ -198,6 +198,139 @@ public final class KartCpDraw {
         return done;
     }
 
+    /**
+     * Parte un area en POCOS rectangulos grandes [x1, x2, z1, z2]: va sacando siempre el rectangulo mas grande que cabe.
+     * (Para guardar el checkpoint y para dibujar sus caras de arriba y abajo con las menos piezas posibles.)
+     */
+    public static List<int[]> fatRects(Collection<Long> cells) {
+        List<int[]> out = new ArrayList<>();
+        if (cells.isEmpty()) {
+            return out;
+        }
+        int minX = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int minZ = Integer.MAX_VALUE;
+        int maxZ = Integer.MIN_VALUE;
+        for (long k : cells) {
+            minX = Math.min(minX, keyX(k));
+            maxX = Math.max(maxX, keyX(k));
+            minZ = Math.min(minZ, keyZ(k));
+            maxZ = Math.max(maxZ, keyZ(k));
+        }
+        int w = maxX - minX + 1;
+        int h = maxZ - minZ + 1;
+        if ((long) w * h > 4_000_000L) { // demasiado grande para este metodo: por filas
+            return rects(cells);
+        }
+        boolean[] g = new boolean[w * h]; // indice = z * w + x
+        int left = 0;
+        for (long k : cells) {
+            int i = (keyZ(k) - minZ) * w + (keyX(k) - minX);
+            if (!g[i]) {
+                g[i] = true;
+                left++;
+            }
+        }
+        int[] heights = new int[w];
+        int[] stack = new int[w + 1];
+        int guard = 0;
+        while (left > 0 && guard++ < 2000) {
+            java.util.Arrays.fill(heights, 0);
+            int bestArea = 0;
+            int bx1 = 0;
+            int bx2 = 0;
+            int bz1 = 0;
+            int bz2 = 0;
+            for (int z = 0; z < h; z++) {
+                for (int x = 0; x < w; x++) {
+                    heights[x] = g[z * w + x] ? heights[x] + 1 : 0;
+                }
+                int top = 0;
+                for (int x = 0; x <= w; x++) {
+                    int cur = x == w ? 0 : heights[x];
+                    while (top > 0 && heights[stack[top - 1]] > cur) {
+                        int hh = heights[stack[--top]];
+                        int l = top == 0 ? 0 : stack[top - 1] + 1;
+                        int area = hh * (x - l);
+                        if (area > bestArea) {
+                            bestArea = area;
+                            bx1 = l;
+                            bx2 = x - 1;
+                            bz1 = z - hh + 1;
+                            bz2 = z;
+                        }
+                    }
+                    stack[top++] = x;
+                }
+            }
+            if (bestArea == 0) {
+                break;
+            }
+            for (int z = bz1; z <= bz2; z++) {
+                for (int x = bx1; x <= bx2; x++) {
+                    g[z * w + x] = false;
+                }
+            }
+            left -= bestArea;
+            out.add(new int[] {bx1 + minX, bx2 + minX, bz1 + minZ, bz2 + minZ});
+        }
+        return out;
+    }
+
+    /**
+     * Las paredes EXTERIORES del area (sin las caras que tocan otro bloque del area), juntando en una sola pieza las que van
+     * seguidas en linea recta. Cada pared es [eje, plano, desde, hasta]: eje 0 = pared que recorre X (en el plano z = plano),
+     * eje 1 = pared que recorre Z (en el plano x = plano); "desde..hasta" son bloques (inclusive).
+     */
+    public static List<int[]> wallRuns(Set<Long> cells) {
+        // 4 direcciones de cara expuesta: 0 = -z, 1 = +z, 2 = -x, 3 = +x; plano -> posiciones ordenadas
+        List<Map<Integer, TreeSet<Integer>>> faces = new ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            faces.add(new HashMap<>());
+        }
+        for (long k : cells) {
+            int x = keyX(k);
+            int z = keyZ(k);
+            if (!cells.contains(key(x, z - 1))) {
+                faces.get(0).computeIfAbsent(z, v -> new TreeSet<>()).add(x);
+            }
+            if (!cells.contains(key(x, z + 1))) {
+                faces.get(1).computeIfAbsent(z + 1, v -> new TreeSet<>()).add(x);
+            }
+            if (!cells.contains(key(x - 1, z))) {
+                faces.get(2).computeIfAbsent(x, v -> new TreeSet<>()).add(z);
+            }
+            if (!cells.contains(key(x + 1, z))) {
+                faces.get(3).computeIfAbsent(x + 1, v -> new TreeSet<>()).add(z);
+            }
+        }
+        List<int[]> out = new ArrayList<>();
+        for (int dir = 0; dir < 4; dir++) {
+            int axis = dir < 2 ? 0 : 1;
+            for (Map.Entry<Integer, TreeSet<Integer>> e : faces.get(dir).entrySet()) {
+                boolean open = false;
+                int start = 0;
+                int prev = 0;
+                for (int v : e.getValue()) {
+                    if (open && v == prev + 1) {
+                        prev = v;
+                        continue;
+                    }
+                    if (open) {
+                        out.add(new int[] {axis, e.getKey(), start, prev});
+                    }
+                    start = v;
+                    prev = v;
+                    open = true;
+                }
+                if (open) {
+                    out.add(new int[] {axis, e.getKey(), start, prev});
+                }
+            }
+        }
+        return out;
+    }
+
     private static void emit(int x1, int x2, int z, Map<Long, int[]> active, Map<Long, int[]> next) {
         long k = ((long) x1 << 32) | (x2 & 0xffffffffL);
         int[] r = active.remove(k);
@@ -489,7 +622,7 @@ public final class KartCpDraw {
                 }
             }
         }
-        List<int[]> rects = rects(region);
+        List<int[]> rects = fatRects(region); // pocos rectangulos grandes
         if (rects.size() > MAX_RECTS) {
             say(sp, "§c[CP] El area es demasiado compleja (" + rects.size() + " partes; maximo " + MAX_RECTS
                     + "). Simplifica el contorno o dibuja varias areas.");
