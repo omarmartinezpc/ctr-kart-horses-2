@@ -64,6 +64,11 @@ public enum KartClass {
         }
     }
 
+    /** ¿Tiene la entidad esa etiqueta? Solo fiable en el servidor. */
+    public static boolean hasTag(Entity e, String tag) {
+        return tagsOf(e).contains(tag);
+    }
+
     /** -1 si la entidad no es kart; si no, el ordinal de su clase. Solo fiable en el servidor. */
     public static int idOf(Entity e) {
         Set<String> tags = tagsOf(e);

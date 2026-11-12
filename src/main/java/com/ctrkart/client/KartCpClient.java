@@ -5,6 +5,7 @@ import com.ctrkart.KartCpItems;
 import com.ctrkart.KartBlocks;
 import com.ctrkart.KartCpActionPayload;
 import com.ctrkart.KartCpDraw;
+import com.ctrkart.KartRouteItems;
 import com.ctrkart.KartCpPayload;
 import com.ctrkart.KartModClient;
 import com.ctrkart.KartPhysics;
@@ -51,6 +52,9 @@ import net.minecraft.world.phys.Vec3;
 public final class KartCpClient {
     private static volatile List<CpBox> boxes = List.of();
     private static volatile List<RescuePoint> points = List.of();
+    // nodos de ruta de los bots: {x, y, z, giro, orden en el recorrido (-1 = fuera)} y si el recorrido esta completo
+    private static volatile List<int[]> nodes = List.of();
+    private static volatile boolean nodesComplete;
     private static int uiNumber;
     private static boolean uiCornerSet;
     private static BlockPos uiCorner = BlockPos.ZERO;
@@ -110,6 +114,15 @@ public final class KartCpClient {
                     l.add(new RescuePoint(d.get(i), d.get(i + 1), d.get(i + 2), d.get(i + 3)));
                 }
                 points = l;
+                break;
+            }
+            case KartCpPayload.NODES: {
+                List<int[]> l = new ArrayList<>();
+                for (int i = 1; i + 4 < d.size(); i += 5) {
+                    l.add(new int[] {d.get(i), d.get(i + 1), d.get(i + 2), d.get(i + 3), d.get(i + 4)});
+                }
+                nodesComplete = !d.isEmpty() && d.get(0) != 0;
+                nodes = l;
                 break;
             }
             case KartCpPayload.UI:
@@ -208,6 +221,8 @@ public final class KartCpClient {
     public static void clear() {
         boxes = List.of();
         points = List.of();
+        nodes = List.of();
+        nodesComplete = false;
         drawRects = List.of();
         drawCount = 0;
         drawStretchGroup = 0;
@@ -258,7 +273,8 @@ public final class KartCpClient {
         boolean eraser = !wand && holds(p, KartCpItems.ERASER);
         boolean rescue = !wand && !eraser && holds(p, KartCpItems.RESCUE);
         boolean draw = !wand && !eraser && !rescue && holds(p, KartCpDraw.ITEM);
-        if (!wand && !eraser && !rescue && !draw) {
+        boolean route = !wand && !eraser && !rescue && !draw && holds(p, KartRouteItems.ITEM);
+        if (!wand && !eraser && !rescue && !draw && !route) {
             clearDisplays();
             return;
         }
@@ -295,6 +311,25 @@ public final class KartCpClient {
                 sel = null; // el bloque de Rescate esta mas cerca: el checkpoint de detras no se resalta
             } else if (rsel != null && sel != null) {
                 rsel = null;
+            }
+        }
+
+        // nodos de ruta de los bots: el que apuntas (si esta mas cerca que lo demas)
+        List<int[]> nds = nodes;
+        CpBox.Hit nsel = null;
+        if (route || eraser) {
+            List<CpBox> nb = new ArrayList<>();
+            for (int[] n : nds) {
+                nb.add(new CpBox(CpBox.ROUTE_ID, n[0], n[1], n[2], n[0], n[1], n[2]));
+            }
+            nsel = CpBox.pick(nb, eye, look, 80.0);
+            if (nsel != null) {
+                if ((sel == null || nsel.t() <= sel.t()) && (rsel == null || nsel.t() <= rsel.t())) {
+                    sel = null;
+                    rsel = null;
+                } else {
+                    nsel = null;
+                }
             }
         }
 
@@ -346,6 +381,22 @@ public final class KartCpClient {
                 double cx = r.x() + 0.5 + fx * 0.6;
                 double cz = r.z() + 0.5 + fz * 0.6;
                 show("rn" + i, solid("white_concrete"), cx - 0.15, r.y() + 0.35, cz - 0.15, 0.3f, 0.3f, 0.3f, keep);
+            }
+        }
+        // Nodos de ruta de los bots (solidos): cuerpo celeste con una "nariz" blanca hacia donde miran, y la linea del recorrido
+        if (route || eraser) {
+            for (int i = 0; i < nds.size(); i++) {
+                int[] r = nds.get(i);
+                boolean aimed = nsel != null && nsel.box().x1() == r[0] && nsel.box().y1() == r[1] && nsel.box().z1() == r[2];
+                BlockState body = aimed ? (eraser ? solid("red_concrete") : solid("yellow_concrete")) : solid(r[4] >= 0 ? "cyan_concrete" : "gray_concrete");
+                show("nd" + i, body, r[0] - 0.001, r[1] - 0.001, r[2] - 0.001, 1.002f, 1.002f, 1.002f, keep);
+                double rad = Math.toRadians(r[3]);
+                double cx = r[0] + 0.5 + -Math.sin(rad) * 0.6;
+                double cz = r[2] + 0.5 + Math.cos(rad) * 0.6;
+                show("nn" + i, solid("white_concrete"), cx - 0.15, r[1] + 0.35, cz - 0.15, 0.3f, 0.3f, 0.3f, keep);
+            }
+            if (mc.level.getGameTime() % 4 == 0) {
+                routeParticles(mc, nds);
             }
         }
         // el bloque de la mira (sin hitbox y sin reemplazar nada: es solo una imagen)
@@ -418,6 +469,15 @@ public final class KartCpClient {
                             + (sel != null ? " §7| §eApuntando: area #" + sel.box().number() + " §7(click en cara de arriba/abajo: estirar | shift+click: poner el numero " + num + ")"
                             : " §7| shift+click: cambiar numero");
                 }
+            } else if (route) {
+                int chained = 0;
+                for (int[] n : nds) {
+                    if (n[4] >= 0) {
+                        chained++;
+                    }
+                }
+                msg = "§b§lNODOS DE RUTA §r§7| " + nds.size() + " nodos, " + chained + " en el recorrido" + (nodesComplete ? " §a(completo)" : " §e(incompleto)")
+                        + " §7| click: colocar (dentro de un checkpoint) | click en un nodo: orientar | shift+click: borrar";
             } else if (eraser) {
                 msg = "§c§lBORRAR §r§7| " + (rsel != null ? "click: eliminar el bloque de Rescate"
                         : sel == null ? "mira un checkpoint o un bloque de Rescate" : "click: eliminar" + target);
@@ -790,6 +850,40 @@ public final class KartCpClient {
             d.x = cx;
             d.y = cy;
             d.z = cz;
+        }
+    }
+
+    private static final net.minecraft.core.particles.DustParticleOptions ROUTE_DUST =
+            new net.minecraft.core.particles.DustParticleOptions(0x35E0FF, 1.0f);
+    private static final net.minecraft.core.particles.DustParticleOptions ROUTE_DUST_CLOSE =
+            new net.minecraft.core.particles.DustParticleOptions(0x7CFF6B, 1.0f);
+
+    /** Dibuja el recorrido de los bots con particulas: una linea entre cada nodo y el siguiente (la ultima vuelve a la meta si esta completo). */
+    private static void routeParticles(Minecraft mc, List<int[]> nds) {
+        List<int[]> chain = new ArrayList<>();
+        for (int[] n : nds) {
+            if (n[4] >= 0) {
+                chain.add(n);
+            }
+        }
+        chain.sort((a, b) -> Integer.compare(a[4], b[4]));
+        int count = chain.size();
+        for (int i = 0; i + 1 < count + (nodesComplete ? 1 : 0); i++) {
+            int[] a = chain.get(i);
+            int[] b = chain.get((i + 1) % count);
+            double ax = a[0] + 0.5;
+            double ay = a[1] + 0.2;
+            double az = a[2] + 0.5;
+            double dx = b[0] + 0.5 - ax;
+            double dy = b[1] + 0.2 - ay;
+            double dz = b[2] + 0.5 - az;
+            double len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+            int steps = (int) Math.min(60, Math.max(1, Math.ceil(len / 0.9)));
+            boolean closing = i + 1 == count;
+            for (int s = 0; s < steps; s++) {
+                double t = (double) s / steps;
+                mc.level.addParticle(closing ? ROUTE_DUST_CLOSE : ROUTE_DUST, ax + dx * t, ay + dy * t, az + dz * t, 0, 0, 0);
+            }
         }
     }
 

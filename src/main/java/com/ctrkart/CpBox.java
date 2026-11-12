@@ -11,6 +11,7 @@ import net.minecraft.world.phys.Vec3;
 public record CpBox(int number, int x1, int y1, int z1, int x2, int y2, int z2, int group) {
     public static final int FREE = -1;
     public static final int MAX_NUMBER = 100;
+    public static final int ROUTE_ID = -3;  // cajas de una celda que representan a un nodo de ruta de los bots (solo para apuntarlas)
     public static final int RESCUE_ID = -2; // cajas de una celda que representan a un bloque de Rescate (solo para apuntarlas)
 
     /**

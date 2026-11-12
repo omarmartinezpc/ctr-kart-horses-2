@@ -10,6 +10,8 @@
  "item.ctrkart.checkpoint_eraser": "Checkpoint Eraser (delete)",
  "item.ctrkart.checkpoint_draw": "Dibujar Checkpoint",
  "item.ctrkart.kart_remover": "Eliminar Karts",
+ "item.ctrkart.route_node": "Nodo de Ruta (bots)",
+ "item.ctrkart.kart_bot": "Bot",
  "item.ctrkart.rescue_point": "Rescue",
  "item.ctrkart.race_wheel": "Race Wheel (right-click: start race)",
  "item.ctrkart.race_wheel_on": "Race Wheel (ACTIVE, right-click: stop)"

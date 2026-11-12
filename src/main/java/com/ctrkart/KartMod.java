@@ -94,6 +94,8 @@ public class KartMod implements ModInitializer {
         KartCpItems.register();
         KartCpDraw.register();
         KartRemover.register();
+        KartRouteItems.register();
+        KartBots.register();
         KartRaceItem.register();
         KartItem.register();
     }
@@ -102,6 +104,7 @@ public class KartMod implements ModInitializer {
     private static void tickLevel(ServerLevel level) {
         updateRiders(level);
         KartRace.tick(level);
+        KartBots.tick(level);
         KartTeleport.tick(level);
         if (level.getGameTime() % 10L != 0L) {
             return;

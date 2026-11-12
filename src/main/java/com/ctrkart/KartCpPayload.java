@@ -17,6 +17,7 @@ import net.minecraft.resources.Identifier;
  *  RESCUE_END  : []
  *  PLACE       : [id del kart, x*1000, y*1000, z*1000, giro*10] el kart se coloca ahi (parado, sin perder reservas)
  *  POINTS      : bloques de Rescate de la dimension del jugador, 4 enteros por punto [x, y, z, giro]
+ *  NODES       : nodos de ruta de los bots de la dimension: [recorrido completo (0/1), y por nodo: x, y, z, giro, orden en el recorrido (-1 = fuera)]
  *  DRAW        : estado de "Dibujar Checkpoint": [grupo que se estira (0 = ninguno), lado (+1 arriba / -1 abajo), altura (y) del dibujo,
  *                numero de bloques N, y luego N pares x, z]
  */
@@ -30,6 +31,7 @@ public record KartCpPayload(int kind, List<Integer> data) implements CustomPacke
     public static final int POINTS = 6;
     public static final int PLACE = 7;
     public static final int DRAW = 8;
+    public static final int NODES = 9;
 
     public static final CustomPacketPayload.Type<KartCpPayload> TYPE =
             new CustomPacketPayload.Type<>(Identifier.fromNamespaceAndPath(KartMod.MOD_ID, "cp"));

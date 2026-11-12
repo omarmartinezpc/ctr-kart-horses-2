@@ -54,6 +54,11 @@ public final class KartRemover {
             if (KartClass.idOf(horse) < 0) {
                 continue; // un caballo normal, sin la etiqueta "kart"
             }
+            for (net.minecraft.world.entity.Entity passenger : horse.getPassengers()) {
+                if (!(passenger instanceof Player)) {
+                    passenger.discard(); // el personaje de un bot
+                }
+            }
             horse.ejectPassengers();
             KartMod.clearSuper(horse.getUUID());
             horse.discard();

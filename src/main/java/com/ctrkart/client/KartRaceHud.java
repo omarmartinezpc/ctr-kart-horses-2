@@ -89,7 +89,7 @@ public final class KartRaceHud {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.options.hideGui) {
+        if (mc.player == null) { // (con F1 el HUD completo ya no se dibuja solo)
             return;
         }
         Font font = mc.font;

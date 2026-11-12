@@ -23,6 +23,7 @@ import net.minecraft.world.level.storage.LevelResource;
 public final class KartCheckpoints {
     private static final Map<String, List<CpBox>> BY_DIM = new HashMap<>();
     private static final Map<String, List<RescuePoint>> POINTS_BY_DIM = new HashMap<>();
+    private static final Map<String, List<RouteNode>> NODES_BY_DIM = new HashMap<>();
     private static final Map<UUID, String> SENT = new HashMap<>(); // dimension a la que se envio la lista a cada jugador
     /** Cache por dimension: lista de cajas, secuencia, indice por chunk y centros. Se borra en changed() y en load(). */
     private static final Map<String, KartTrack> TRACKS = new HashMap<>();
@@ -44,7 +45,8 @@ public final class KartCheckpoints {
      * reutilizan hasta que cambie algo: TODO metodo que modifica cajas termina en changed(), que borra esta cache.
      */
     public static KartTrack track(ServerLevel level) {
-        return TRACKS.computeIfAbsent(dim(level), k -> new KartTrack(BY_DIM.getOrDefault(k, List.of())));
+        return TRACKS.computeIfAbsent(dim(level),
+                k -> new KartTrack(BY_DIM.getOrDefault(k, List.of()), NODES_BY_DIM.getOrDefault(k, List.of())));
     }
 
     /** Lista de checkpoints de ese mundo: una foto de SOLO LECTURA (cambia por una nueva cuando se modifica algo). */
@@ -55,6 +57,35 @@ public final class KartCheckpoints {
     /** Copia de la lista de bloques de Rescate de ese mundo. */
     public static List<RescuePoint> points(ServerLevel level) {
         return new ArrayList<>(POINTS_BY_DIM.getOrDefault(dim(level), List.of()));
+    }
+
+    /** Nodos de ruta de los bots de ese mundo (foto de solo lectura). */
+    public static List<RouteNode> nodes(ServerLevel level) {
+        return track(level).nodes();
+    }
+
+    public static void addNode(ServerLevel level, RouteNode n) {
+        NODES_BY_DIM.computeIfAbsent(dim(level), k -> new ArrayList<>()).add(n);
+        changed(level);
+    }
+
+    public static void removeNode(ServerLevel level, RouteNode n) {
+        List<RouteNode> l = NODES_BY_DIM.get(dim(level));
+        if (l != null && l.remove(n)) {
+            changed(level);
+        }
+    }
+
+    public static void replaceNode(ServerLevel level, RouteNode old, RouteNode now) {
+        List<RouteNode> l = NODES_BY_DIM.get(dim(level));
+        if (l == null) {
+            return;
+        }
+        int i = l.indexOf(old);
+        if (i >= 0) {
+            l.set(i, now);
+            changed(level);
+        }
     }
 
     public static void addPoint(ServerLevel level, RescuePoint p) {
@@ -216,11 +247,25 @@ public final class KartCheckpoints {
             pts.add(r.yaw());
         }
         ServerPlayNetworking.send(p, new KartCpPayload(KartCpPayload.POINTS, pts));
+        KartTrack track = track(level);
+        KartTrack.Route route = track.route();
+        List<Integer> nd = new ArrayList<>();
+        nd.add(route.complete() ? 1 : 0);
+        for (int i = 0; i < track.nodes().size(); i++) {
+            RouteNode r = track.nodes().get(i);
+            nd.add(r.x());
+            nd.add(r.y());
+            nd.add(r.z());
+            nd.add(r.yaw());
+            nd.add(route.order()[i]);
+        }
+        ServerPlayNetworking.send(p, new KartCpPayload(KartCpPayload.NODES, nd));
     }
 
     private static void load(MinecraftServer server) {
         BY_DIM.clear();
         POINTS_BY_DIM.clear();
+        NODES_BY_DIM.clear();
         SENT.clear();
         TRACKS.clear();
         try {
@@ -231,6 +276,10 @@ public final class KartCheckpoints {
                     String[] p = line.split("\t");
                     if (p.length == 6 && p[1].equals("R")) { // bloque de Rescate: dim R x y z giro
                         POINTS_BY_DIM.computeIfAbsent(p[0], k -> new ArrayList<>()).add(new RescuePoint(
+                                Integer.parseInt(p[2].trim()), Integer.parseInt(p[3].trim()), Integer.parseInt(p[4].trim()),
+                                Integer.parseInt(p[5].trim())));
+                    } else if (p.length == 6 && p[1].equals("N")) { // nodo de ruta de los bots: dim N x y z giro
+                        NODES_BY_DIM.computeIfAbsent(p[0], k -> new ArrayList<>()).add(new RouteNode(
                                 Integer.parseInt(p[2].trim()), Integer.parseInt(p[3].trim()), Integer.parseInt(p[4].trim()),
                                 Integer.parseInt(p[5].trim())));
                     } else if (p.length == 8 || p.length == 9) { // la 9a columna (grupo) solo existe en las areas dibujadas
@@ -263,6 +312,11 @@ public final class KartCheckpoints {
             for (Map.Entry<String, List<RescuePoint>> e : POINTS_BY_DIM.entrySet()) {
                 for (RescuePoint r : e.getValue()) {
                     lines.add(e.getKey() + "\tR\t" + r.x() + "\t" + r.y() + "\t" + r.z() + "\t" + r.yaw());
+                }
+            }
+            for (Map.Entry<String, List<RouteNode>> e : NODES_BY_DIM.entrySet()) {
+                for (RouteNode r : e.getValue()) {
+                    lines.add(e.getKey() + "\tN\t" + r.x() + "\t" + r.y() + "\t" + r.z() + "\t" + r.yaw());
                 }
             }
             Files.write(file, lines);

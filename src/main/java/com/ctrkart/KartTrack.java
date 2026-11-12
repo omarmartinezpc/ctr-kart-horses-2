@@ -21,7 +21,7 @@ import net.minecraft.world.phys.Vec3;
  *    de sus cajas, ponderado por volumen); una caja suelta (group 0) = su propio centro.
  */
 public final class KartTrack {
-    public static final KartTrack EMPTY = new KartTrack(List.of());
+    public static final KartTrack EMPTY = new KartTrack(List.of(), List.of());
 
     private static final int BIG_CHUNKS = 64;       // cajas que ocupan mas chunks que esto: no se indexan
     private static final int MAX_QUERY_CHUNKS = 256; // trayectos mas largos que esto: se prueban todas las cajas
@@ -40,7 +40,16 @@ public final class KartTrack {
         }
     }
 
+    /**
+     * Recorrido de los bots: los nodos de ruta en orden (checkpoints en el orden de la carrera; dentro de cada checkpoint,
+     * en el orden en que se colocaron). Solo llega hasta el primer checkpoint SIN nodo; lo que falta va en "missing".
+     * order[i] = posicion en el recorrido del nodo i de nodes() (-1 si no esta). complete = hay nodos en TODOS los checkpoints.
+     */
+    public record Route(List<RouteNode> chain, int[] order, List<Integer> missing, boolean complete) {}
+
     private final List<CpBox> boxes;
+    private final List<RouteNode> nodes;
+    private Route route; // se calcula la primera vez que hace falta
     private final int[] seq;
     private final Map<Long, int[]> chunks = new HashMap<>();
     private final int[] big;
@@ -49,7 +58,12 @@ public final class KartTrack {
     private int gen;
 
     public KartTrack(List<CpBox> source) {
+        this(source, List.of());
+    }
+
+    public KartTrack(List<CpBox> source, List<RouteNode> nodeSource) {
         this.boxes = Collections.unmodifiableList(new ArrayList<>(source));
+        this.nodes = Collections.unmodifiableList(new ArrayList<>(nodeSource));
         this.mark = new int[boxes.size()];
 
         TreeSet<Integer> set = new TreeSet<>();
@@ -119,6 +133,58 @@ public final class KartTrack {
 
     public List<CpBox> boxes() {
         return boxes;
+    }
+
+    /** Todos los nodos de ruta de la dimension (en el orden en que se colocaron). */
+    public List<RouteNode> nodes() {
+        return nodes;
+    }
+
+    /** El numero del checkpoint (no libre) en el que esta ese nodo, o -1 si no esta en ninguno. */
+    public int ownerOf(RouteNode node) {
+        Vec3 c = node.cellCenter();
+        for (CpBox b : near(c, c)) {
+            if (!b.isFree() && b.contains(c)) {
+                return b.number();
+            }
+        }
+        return -1;
+    }
+
+    /** El recorrido de los bots (ver Route). */
+    public Route route() {
+        if (route != null) {
+            return route;
+        }
+        Map<Integer, List<Integer>> byCp = new HashMap<>();
+        for (int i = 0; i < nodes.size(); i++) {
+            int n = ownerOf(nodes.get(i));
+            if (n >= 0) {
+                byCp.computeIfAbsent(n, k -> new ArrayList<>()).add(i);
+            }
+        }
+        List<Integer> chainIdx = new ArrayList<>();
+        List<Integer> missing = new ArrayList<>();
+        boolean broken = false;
+        for (int number : seq) {
+            List<Integer> l = byCp.get(number);
+            if (l == null || l.isEmpty()) {
+                missing.add(number);
+                broken = true;
+            } else if (!broken) {
+                chainIdx.addAll(l);
+            }
+        }
+        int[] order = new int[nodes.size()];
+        Arrays.fill(order, -1);
+        List<RouteNode> chain = new ArrayList<>();
+        for (int k = 0; k < chainIdx.size(); k++) {
+            order[chainIdx.get(k)] = k;
+            chain.add(nodes.get(chainIdx.get(k)));
+        }
+        route = new Route(Collections.unmodifiableList(chain), order, Collections.unmodifiableList(missing),
+                missing.isEmpty() && !chain.isEmpty());
+        return route;
     }
 
     /** Numeros del recorrido (sin zonas libres), de menor a mayor. No modificar. */

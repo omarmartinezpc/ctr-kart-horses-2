@@ -198,6 +198,16 @@ public final class KartCpItems {
 
         // ---------------------------------------------------------------- Borrado
         if (item == ERASER) {
+            List<RouteNode> nodes = KartCheckpoints.nodes(level);
+            CpBox.Hit np = KartRouteItems.pickNode(nodes, eye, look);
+            if (np != null && (rp == null || np.t() <= rp.t()) && (sel == null || np.t() <= sel.t())) { // un nodo de ruta, el mas cercano
+                RouteNode old = KartRouteItems.nodeAt(nodes, np.box());
+                if (old != null) {
+                    KartCheckpoints.removeNode(level, old);
+                    sp.sendSystemMessage(Component.literal("§c[CP] Nodo de ruta eliminado."));
+                }
+                return InteractionResult.SUCCESS;
+            }
             boolean point = rp != null && (sel == null || rp.t() <= sel.t());
             if (point) {
                 RescuePoint old = pointAt(pts, rp.box());

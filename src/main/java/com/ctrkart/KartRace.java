@@ -114,6 +114,9 @@ public final class KartRace {
         } else {
             p.sendSystemMessage(Component.literal("§a[Carrera] Activada. Montate en un kart y entra al checkpoint 0 para empezar."));
         }
+        if (KartBots.hasBots(level)) {
+            KartBots.warn(level, p); // avisa si falta recorrido para los bots
+        }
         return true;
     }
 
@@ -208,14 +211,18 @@ public final class KartRace {
                 entries.add(new KartRanking.Entry(p.getUUID(), st.progress, st.cpTick));
             }
         }
-        if (entries.isEmpty()) {
-            return;
+        if (racers.isEmpty()) {
+            return; // nadie a quien avisar
         }
+        entries.addAll(KartBots.entries(level)); // los bots tambien cuentan en las posiciones
         KartRanking.sort(entries);
         int total = KartCheckpoints.track(level).seq().length;
         for (int i = 0; i < entries.size(); i++) {
             UUID id = entries.get(i).id();
             State st = STATES.get(id);
+            if (st == null) {
+                continue; // es un bot
+            }
             if (st.place != i + 1 || st.racers != entries.size()) { // solo se envia cuando cambia
                 st.place = i + 1;
                 st.racers = entries.size();
@@ -353,6 +360,17 @@ public final class KartRace {
         System.out.println("[ctrkart] Rescate: " + why + " | esperaba el checkpoint " + seq[Math.min(st.idx, seq.length - 1)]
                 + " | dentro de: " + (sb.length() == 0 ? "nada" : sb.toString().trim())
                 + String.format(java.util.Locale.ROOT, " | pos %.2f %.2f %.2f", pos.x, pos.y, pos.z));
+    }
+
+    /** Para los bots (KartBots): el checkpoint con ese numero mas cercano a "ref". */
+    static CpBox nearestBox(List<CpBox> boxes, int number, Vec3 ref) {
+        return nearest(boxes, number, ref);
+    }
+
+    /** Para los bots (KartBots): donde aparece un kart rescatado en "target": {x, y, z, giro}. */
+    static double[] rescueDestination(ServerLevel level, List<CpBox> boxes, CpBox target, Vec3 ref, int nextNumber, float defaultYaw) {
+        Dest d = destination(level, boxes, target, ref, nextNumber, defaultYaw);
+        return new double[] {d.x(), d.y(), d.z(), d.yaw()};
     }
 
     private static void sendRace(ServerPlayer p, State st, int total) {
